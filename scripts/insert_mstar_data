@@ -1,0 +1,102 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import sys
+import argparse
+from pymongo import MongoClient
+
+# Local imports
+sys.path.append(os.path.expandvars("$MSTAR_PYTHON"))
+from mstar2jpeg import convert_image_target
+from mstar2jpeg import convert_image_clutter
+
+MSTAR_DATA_DIR = "/data/mstar/"
+MSTAR_CLUTTER = os.path.join(MSTAR_DATA_DIR, 'clutter')
+MSTAR_TARGETS = os.path.join(MSTAR_DATA_DIR, 'targets')
+
+def get_db():
+    client = MongoClient()
+    db = client.mstar
+    return db
+
+
+def clutter(args):
+    db = get_db()
+    insert_cntr = 0
+    total_cntr = 0
+    for root, dirs, files in os.walk(args.input_dir):
+        if 'CLUTTER' in dirs:
+            print("found a CLUTTER directory")
+            source = root
+            continue
+        if os.path.basename(root) in ['15_DEG', '17_DEG']:
+            print("found %s directory" % root)
+            dep_angle = os.path.basename(root)
+            print("found clutter with depression angle: %s" % dep_angle)
+            for f in files:
+                if f.startswith('._'): continue
+                total_cntr +=1
+                fname = os.path.join(root, f)
+                doc = convert_image_clutter(fname, args.output_dir, dep_angle,
+                                            source, args.no_enhance, args.quality,
+                                            args.header, args.verbose)
+                result = db.clutter.insert(doc)
+                if result: insert_cntr +=1
+    return {'total_files':total_cntr, 'inserted_files':insert_cntr}
+
+
+def target(args):
+    db = get_db()
+    insert_cntr = 0
+    total_cntr = 0
+    for root, dirs, files in os.walk(args.input_dir):
+        if os.path.basename(root) in ['15_DEG', '17_DEG']:
+            dep_angle = os.path.basename(root)
+            print("found targets with depression angle: %s" % dep_angle)
+            continue
+        if os.path.basename(root) in ['BMP2', 'BTR70', 'T72']:
+            target_class = os.path.basename(root)
+            print("found target class: %s" % target_class)
+            continue
+        if os.path.basename(root).startswith('SN'):
+            target_instance = os.path.basename(root)
+            for f in files:
+                if f.startswith('._'): continue
+                total_cntr +=1
+                fname = os.path.join(root, f)
+                doc = convert_image_target(fname, args.output_dir, dep_angle,
+                                           target_class, target_instance, args.no_enhance, args.quality,
+                                           args.header, args.verbose)
+                if dep_angle == '15_DEG': doc['label'] = 'test'
+                if dep_angle == '17_DEG': doc['label'] = 'train'
+                result = db.targets.insert(doc)
+                if result: insert_cntr +=1
+    return {'total_files':total_cntr, 'inserted_files':insert_cntr}
+
+
+def get_parser():
+    usage = "Command line script to convert a directory of MSTAR image files to JPEG and insert metadata into DB"
+    parser = argparse.ArgumentParser(usage=usage)
+    parser.add_argument('data_type', type=str, choices=['clutter', 'target'],
+                        help="type fo image to convert")
+    parser.add_argument('input_dir', type=str, help="full path to MSTAR files to convert")
+    parser.add_argument('output_dir', type=str, help="path to write jpeg files to")
+    parser.add_argument('-n', dest='no_enhance', action='store_false',
+                        help="do NOT contrast enhance image")
+    parser.add_argument('-q', dest='quality', type=int, default=75,
+                        help="compression quality (5-95)")
+    parser.add_argument('--header', dest='header', action='store_true', help="dump Phoenix header file")
+    parser.add_argument('-v', dest='verbose', action='store_true')
+    return parser
+
+
+if __name__ == '__main__':
+    parser = get_parser()
+    args = parser.parse_args()
+    if args.data_type == 'clutter':
+        result = clutter(args)
+    if args.data_type == 'target':
+        result = target(args)
+        sys.exit(1)
+    print(result)
+    sys.exit(0)

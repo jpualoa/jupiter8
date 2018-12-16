@@ -1,0 +1,55 @@
+#!/usr/bin/env python
+import os
+import sys
+import glob
+import argparse
+import subprocess
+import logging
+
+sys.path.append(os.path.expandvars("$MSTAR_PYTHON"))
+from mstar2jpeg import convert_file
+
+
+MSTAR2JPEG_PATH = os.path.expandvars("$MSTAR_JPEG")
+MSTAR2JPEG = os.path.join(MSTAR2JPEG_PATH, 'mstar2jpeg')
+
+
+def get_parser():
+    usage = "Command line script to convert a directory of MSTAR image files to JPEG."
+    parser = argparse.ArgumentParser(usage=usage)
+    parser.add_argument('input_dir', type=str, help="full path to MSTAR files to convert")
+    parser.add_argument('output_dir', type=str, help="path to write jpeg files to")
+    parser.add_argument('-n', dest='no_enhance', action='store_false',
+                        help="do NOT contrast enhance image")
+    parser.add_argument('-q', dest='quality', type=int, default=75,
+                        help="compression quality (5-95)")
+    parser.add_argument('-header', dest='header', action='store_true', help="dump Phoenix header file")
+    parser.add_argument('-v', dest='verbose', action='store_true')
+    return parser
+
+
+def main(args):
+    if not os.path.exists(args.input_dir):
+        print("input directory %s does not exist" % args.input_dir)
+        return
+    if not os.path.exists(args.output_dir):
+        print("output directory %s does not exist" % args.output_dir)
+        return
+    file_names = glob.glob(os.path.join(input_dir, '*'))
+    for f in file_names:
+        convert_file(f, args.output_dir, args.no_enhance, args.quality,
+                     args.header, args.verbose)
+    return
+    
+
+if __name__ == '__main__':
+    if os.getenv("MSTAR_JPEG") is None:
+        print("define $MSTAR_JPEG environment variable pointing to executable")
+        sys.exit(0)
+    if not os.path.exists(MSTAR2JPEG):
+        print("executable %s does not exist" % MSTAR2JPEG)
+        sys.exit(0)
+    parser = get_parser()
+    args = parser.parse_args()
+    main(args)
+    sys.exit(0)

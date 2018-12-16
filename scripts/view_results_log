@@ -1,0 +1,65 @@
+#!/usr/bin/env python
+import json
+import os
+import sys
+import argparse
+import numpy as np
+# Set backend
+import matplotlib
+matplotlib.use('Qt4Agg')
+import matplotlib.pyplot as plt
+
+def valid_path(path):
+    path = os.path.expandvars(path)
+    if not os.path.exists(path):
+        raise ValueError("%s does not exist" % path)
+    return path
+
+def get_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('logfile', type=valid_path, help="""path to log file""")
+    return parser
+
+def extract(key, results):
+    res = [r[key] for r in results]
+    return np.array(res)
+
+def main(args):
+    with open(args.logfile, 'r') as f:
+        results = json.load(f)
+    epochs = range(len(results))
+    # dicriminator accuracy
+    d_acc = extract('d_accuracy', results)
+    # discriminator loss
+    d_loss = extract('d_loss', results)
+    # generator loss
+    g_loss = extract('g_loss', results)
+    # discriminator loss variance
+    d_var = extract('d_loss_var', results)
+    # generator loss variance
+    g_var = extract('g_loss_var', results)
+
+    fig, ax = plt.subplots(3, sharex=True)
+    # Plot accuracy
+    ax[0].plot(epochs, d_acc, label='dis')
+    ax[0].set_title('accuracy')
+    ax[0].legend()
+    # Plot loss
+    ax[1].plot(epochs, d_loss, label='dis')
+    ax[1].plot(epochs, g_loss, label='gen')
+    ax[1].set_title('loss')
+    ax[1].legend()
+    # Plot variance
+    ax[2].plot(epochs, d_var, label='dis')
+    ax[2].plot(epochs, g_var, label='gen')
+    ax[2].set_title('loss variance')
+    ax[2].legend()
+    return fig, ax
+
+if __name__ == '__main__':
+    parser = get_parser()
+    args = parser.parse_args()
+
+    fig, ax = main(args)
+    plt.show()
+    sys.exit(0)

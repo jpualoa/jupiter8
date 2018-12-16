@@ -1,0 +1,134 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import sys
+import argparse
+import logging
+
+# External dependencies
+import numpy as np
+import matplotlib.pyplot as plt
+from keras.applications.resnet50 import ResNet50
+from keras.optimizers import Adam, SGD
+from keras.layers import Input, Dense, GlobalAveragePooling2D
+from keras.models import Model
+from keras.callbacks import ModelCheckpoint, EarlyStopping, CSVLogger
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Local imports
+from data.load import get_training_generator, get_test_generator
+from analysis.visualize import plot_history
+from utils.argutils import valid_path
+
+IMG_SHAPE = (128, 128, 1)
+DEFAULT_NUM_TRAIN_SAMPLES = 200
+DEFAULT_NUM_TEST_SAMPLES = 150
+DEFAULT_SAVE_PERIOD = 5
+DEFAULT_EPOCHS = 20
+DEFAULT_BATCH_SIZE = 32
+DEFAULT_VERBOSITY = 0
+DEFAULT_VALIDATION_SPLIT = 0.1
+CHECKPOINT_FILEPATH = "weights.{epoch:02d}.hdf5"
+
+log = logging.getLogger(__name__)
+
+def get_parser():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('outdir', type=valid_path,
+        help="""Output directory for training results""")
+
+    parser.add_argument('--save-period', dest='save_period', type=int,
+        default=DEFAULT_SAVE_PERIOD,
+        help="""How often (per epoch) to save model state""")
+
+    parser.add_argument('--train-samples', type=int,
+        dest='train_samples',
+        default=DEFAULT_NUM_TRAIN_SAMPLES,
+        help="""number of samples PER CLASS to train with""")
+
+    parser.add_argument('--test-samples', type=int,
+        dest='test_samples',
+        default=DEFAULT_NUM_TEST_SAMPLES,
+        help="""number of samples PER CLASS to test with""")
+
+    parser.add_argument('--epochs', type=int,
+        default=DEFAULT_EPOCHS,
+        help="""number of training epochs""")
+
+    parser.add_argument('--verbosity', type=int,
+        default=DEFAULT_VERBOSITY,
+        help="""verbosity mode 0 = silent, 1 = progress bar, 2 = one line per epoch""")
+
+    parser.add_argument('--batch', type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help="""training batch size""")
+
+    parser.add_argument('--split', type=float,
+        default=DEFAULT_VALIDATION_SPLIT,
+        help="""percentage of validation data to split off of training data""")
+
+    parser.add_argument('--use-synths', action='store_true', dest='use_synths',
+        help="""train with synthetic images""")
+    return parser
+
+def get_callbacks(args):
+    FILEPATH = "weights.{epoch:02d}.hdf5"
+    checkpoint = ModelCheckpoint(filepath=os.path.join(args.outdir, FILEPATH),
+                                 monitor='val_loss',
+                                 verbose=args.verbosity,
+                                 save_best_only=True,
+                                 period=args.save_period)
+    csv_logger = CSVLogger(filename=os.path.join(args.outdir, 'training.log'),
+                           separator=',',
+                           append=False)
+    return [checkpoint, csv_logger]
+                                 
+
+def main(args):
+    EXCLUDE_SYNTHS = not args.use_synths
+    log.info('exclude synths: %s' % EXCLUDE_SYNTHS)
+    train_datagen = get_training_generator(batch_size=args.batch, qty=args.train_samples,
+        exclude_synths=EXCLUDE_SYNTHS)
+    test_datagen = get_test_generator(batch_size=args.batch, qty=args.test_samples,
+        exclude_synths=EXCLUDE_SYNTHS)
+    num_train = len(train_datagen.filenames)
+    log.info("Pulled %d training samples" % num_train)
+    num_test = len(test_datagen.filenames)
+    log.info("Pulled %d test samples" % num_test)
+    #input_tensor = Input(shape=IMG_SHAPE)
+    base_model = ResNet50(weights=None, include_top=False, input_shape=IMG_SHAPE, classes=3,
+        pooling='avg')
+    x = base_model.output
+    predictions = Dense(3, activation='softmax')(x)
+    model = Model(inputs=base_model.input, outputs=predictions)
+    opt = SGD(lr=0.0001, momentum=0.9) 
+    model.compile(optimizer=opt, loss='categorical_crossentropy',
+        metrics=['categorical_accuracy'])
+    history = model.fit_generator(train_datagen,
+                                  epochs=args.epochs,
+                                  steps_per_epoch=num_train // args.batch,
+                                  verbose=args.verbosity,
+                                  validation_data=test_datagen,
+                                  validation_steps=num_test // args.batch,
+                                  callbacks=get_callbacks(args))
+    print(str(history.history['loss']))
+
+    #res = model.evaluate_generator(pred_gen, steps=len(pred_gen.filenames))
+    #print("test performance: loss: %f, acc: %f" % (res[0], res[1]))
+    y_pred = model.predict_generator(test_datagen, steps=num_test // args.batch+1)
+    np.savetxt(os.path.join(args.outdir, 'predictions.log'), y_pred, delimiter=',')
+    np.savetxt(os.path.join(args.outdir, 'test_labels.log'), test_datagen.classes, delimiter=',')
+    y_pred = np.argmax(y_pred, axis=1)
+    log.info(y_pred)
+    print('***', len(y_pred))
+    print("Confusion Matrix")
+    print(confusion_matrix(test_datagen.classes, y_pred))
+    return
+
+if __name__ == '__main__':
+    logging.basicConfig(level=20)
+    parser = get_parser()
+    args = parser.parse_args()
+    print(args)
+    main(args)
+    sys.exit(0)
