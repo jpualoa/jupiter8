@@ -1,0 +1,188 @@
+backend: tensorflow
+class_name: Model
+config:
+  input_layers:
+  - [input_2, 0, 0]
+  layers:
+  - class_name: InputLayer
+    config:
+      batch_input_shape: !!python/tuple [null, 500]
+      dtype: float32
+      name: input_2
+      sparse: false
+    inbound_nodes: []
+    name: input_2
+  - class_name: Sequential
+    config:
+    - class_name: Dense
+      config:
+        activation: relu
+        activity_regularizer: null
+        batch_input_shape: !!python/tuple [null, 500]
+        bias_constraint: null
+        bias_initializer:
+          class_name: VarianceScaling
+          config: {distribution: uniform, mode: fan_avg, scale: 1.0, seed: null}
+        bias_regularizer: null
+        dtype: float32
+        kernel_constraint: null
+        kernel_initializer:
+          class_name: VarianceScaling
+          config: {distribution: uniform, mode: fan_avg, scale: 1.0, seed: null}
+        kernel_regularizer: null
+        name: dense_2
+        trainable: true
+        units: 131072
+        use_bias: true
+    - class_name: Reshape
+      config:
+        name: reshape_1
+        target_shape: !!python/tuple [32, 32, 128]
+        trainable: true
+    - class_name: UpSampling2D
+      config:
+        data_format: channels_last
+        name: up_sampling2d_1
+        size: &id001 !!python/tuple [2, 2]
+        trainable: true
+    - class_name: Conv2D
+      config:
+        activation: linear
+        activity_regularizer: null
+        bias_constraint: null
+        bias_initializer:
+          class_name: VarianceScaling
+          config: {distribution: uniform, mode: fan_avg, scale: 1.0, seed: null}
+        bias_regularizer: null
+        data_format: channels_last
+        dilation_rate: &id002 !!python/tuple [1, 1]
+        filters: 128
+        kernel_constraint: null
+        kernel_initializer:
+          class_name: VarianceScaling
+          config: {distribution: uniform, mode: fan_avg, scale: 1.0, seed: null}
+        kernel_regularizer: null
+        kernel_size: !!python/tuple [3, 3]
+        name: conv2d_5
+        padding: same
+        strides: &id003 !!python/tuple [1, 1]
+        trainable: true
+        use_bias: true
+    - class_name: BatchNormalization
+      config:
+        axis: -1
+        beta_constraint: null
+        beta_initializer:
+          class_name: Zeros
+          config: {}
+        beta_regularizer: null
+        center: true
+        epsilon: 0.001
+        gamma_constraint: null
+        gamma_initializer:
+          class_name: Ones
+          config: {}
+        gamma_regularizer: null
+        momentum: 0.8
+        moving_mean_initializer:
+          class_name: Zeros
+          config: {}
+        moving_variance_initializer:
+          class_name: Ones
+          config: {}
+        name: batch_normalization_4
+        scale: true
+        trainable: true
+    - class_name: Activation
+      config: {activation: relu, name: activation_1, trainable: true}
+    - class_name: UpSampling2D
+      config:
+        data_format: channels_last
+        name: up_sampling2d_2
+        size: *id001
+        trainable: true
+    - class_name: Conv2D
+      config:
+        activation: linear
+        activity_regularizer: null
+        bias_constraint: null
+        bias_initializer:
+          class_name: VarianceScaling
+          config: {distribution: uniform, mode: fan_avg, scale: 1.0, seed: null}
+        bias_regularizer: null
+        data_format: channels_last
+        dilation_rate: *id002
+        filters: 64
+        kernel_constraint: null
+        kernel_initializer:
+          class_name: VarianceScaling
+          config: {distribution: uniform, mode: fan_avg, scale: 1.0, seed: null}
+        kernel_regularizer: null
+        kernel_size: !!python/tuple [3, 3]
+        name: conv2d_6
+        padding: same
+        strides: *id003
+        trainable: true
+        use_bias: true
+    - class_name: BatchNormalization
+      config:
+        axis: -1
+        beta_constraint: null
+        beta_initializer:
+          class_name: Zeros
+          config: {}
+        beta_regularizer: null
+        center: true
+        epsilon: 0.001
+        gamma_constraint: null
+        gamma_initializer:
+          class_name: Ones
+          config: {}
+        gamma_regularizer: null
+        momentum: 0.8
+        moving_mean_initializer:
+          class_name: Zeros
+          config: {}
+        moving_variance_initializer:
+          class_name: Ones
+          config: {}
+        name: batch_normalization_5
+        scale: true
+        trainable: true
+    - class_name: Activation
+      config: {activation: relu, name: activation_2, trainable: true}
+    - class_name: Conv2D
+      config:
+        activation: linear
+        activity_regularizer: null
+        bias_constraint: null
+        bias_initializer:
+          class_name: VarianceScaling
+          config: {distribution: uniform, mode: fan_avg, scale: 1.0, seed: null}
+        bias_regularizer: null
+        data_format: channels_last
+        dilation_rate: *id002
+        filters: 1
+        kernel_constraint: null
+        kernel_initializer:
+          class_name: VarianceScaling
+          config: {distribution: uniform, mode: fan_avg, scale: 1.0, seed: null}
+        kernel_regularizer: null
+        kernel_size: !!python/tuple [3, 3]
+        name: conv2d_7
+        padding: same
+        strides: *id003
+        trainable: true
+        use_bias: true
+    - class_name: Activation
+      config: {activation: tanh, name: activation_3, trainable: true}
+    inbound_nodes:
+    - - - input_2
+        - 0
+        - 0
+        - {}
+    name: sequential_2
+  name: model_2
+  output_layers:
+  - [sequential_2, 1, 0]
+keras_version: 2.0.0-tf
