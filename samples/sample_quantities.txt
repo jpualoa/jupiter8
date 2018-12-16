@@ -1,0 +1,20 @@
+Training Samples
+target_class
+BMP2     698
+BTR70    233
+T72      691
+Name: target_class, dtype: int64
+
+Synthetic Samples
+target_class
+BMP2     600
+BTR70    600
+T72      600
+Name: target_class, dtype: int64
+
+Test Samples
+target_class
+BMP2     587
+BTR70    196
+T72      582
+Name: target_class, dtype: int64
