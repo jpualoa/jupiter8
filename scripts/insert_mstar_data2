@@ -6,6 +6,7 @@ import os
 import sys
 import argparse
 import logging
+import traceback
 from pymongo import MongoClient
 
 # Local imports
@@ -32,7 +33,7 @@ def find_images(directory):
         if basedir.startswith('COL'):
             collection = basedir
             continue
-        if basedir.stratswith('SCENE'):
+        if basedir.startswith('SCENE'):
             scene = basedir
             continue
         if basedir in VALID_TARGETS:
@@ -47,15 +48,15 @@ def find_images(directory):
                 documents.append(doc)
     return documents
 
-def insert_metadata(db, collection, documents):
+def insert_metadata(dbname, collection, documents):
     client = MongoClient()
-    db = client.db
-    coll = db.collection
+    db = client[dbname]
+    coll = db[collection]
     num_inserted = 0
     for doc in documents:
-        _id = coll.insert(doc)
-        if _id: num_inserted +=1
-    log.debug("inserted %d of %d documents into database") % (num_inserted, len(documents))
+        result = coll.insert(doc)
+        if result: num_inserted +=1
+    log.info("inserted %d of %d documents into database" % (num_inserted, len(documents)))
     return
 
 def get_parser():
@@ -66,29 +67,33 @@ def get_parser():
     parser.add_argument('--database', type=str, default=DATABASE,
         help="""Name of database housing metadata""")
     parser.add_argument('--collection', type=str, default=COLLECTION,
-        help="""Name of database cOllection housing metadata""")
+        help="""Name of database Collection housing metadata""")
+    parser.add_argument('--debug', action='store_true',
+        help="""Set logging to debug (otherwise info)""")
     return parser
 
 def main(args):
     if not os.path.exists(args.dir):
         raise RuntimeError("%s does not exist" % args.dir)
-    log.info("Database: %s, Collection: %s" % (args.database. args.collection))
     log.info("Searching directory %s" % args.dir)
+    log.info("Database: %s, Collection: %s" % (args.database, args.collection))
     documents = find_images(args.dir)
     if not documents:
         log.warn("No images found in %d or its subdirectories" % args.dir)
     else:
-        log.debug("Found %d total images" % len(documents))
+        log.info("Found %d total images" % len(documents))
     log.info("Inserting metadata")
-    #insert_metadata(args.database, args.collection, documents)
-    print(documents[:5])
+    insert_metadata(args.database, args.collection, documents)
     return
 
 
 if __name__ == '__main__':
     parser = get_parser()
-    logging.basicConfig(level=10)
     args = parser.parse_args()
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
     try:
         main(args)
     except KeyboardInterrupt:
@@ -96,6 +101,7 @@ if __name__ == '__main__':
         exit(0)
     except Exception as err:
         print("exiting with error: %s" % err)
+        print(traceback.format_exc())
         exit(1)
     else:
         exit(0)
