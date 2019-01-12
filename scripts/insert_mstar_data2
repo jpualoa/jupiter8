@@ -72,7 +72,7 @@ def get_parser():
 def main(args):
     if not os.path.exists(args.dir):
         raise RuntimeError("%s does not exist" % args.dir)
-    log.info("Database: %s, Collection: %s" % (args.datase. args.collection))
+    log.info("Database: %s, Collection: %s" % (args.database. args.collection))
     log.info("Searching directory %s" % args.dir)
     documents = find_images(args.dir)
     if not documents:
