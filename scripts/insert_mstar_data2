@@ -11,7 +11,7 @@ from pymongo import MongoClient
 
 # Local imports
 
-VALID_TARGETS = ['D7', 'T62', '2S1', 'BRDM-2', 'ZSU_23-4', 'SLICY']
+VALID_TARGETS = ['D7', 'T62', '2S1', 'BRDM_2', 'ZIL131', 'ZSU_23_4', 'SLICY']
 FILE_EXTENSION = '.JPG'
 DATABASE = 'mstar'
 COLLECTION = 'targets'
