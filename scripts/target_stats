@@ -10,6 +10,8 @@ import pandas as pd
 
 DEFAULT_DATABASE = 'mstar'
 DEFAULT_TARGETS_COLLECTION = 'targets'
+TRAIN_DEP_ANGLE = '17_DEG'
+TEST_DEP_ANGLE = '15_DEG'
 
 client = pymongo.MongoClient()
 db = client[DEFAULT_DATABASE]
@@ -27,19 +29,19 @@ def main():
     df = load_targets()
 
     # Train Samples
-    train = df[(df.label == 'train') & (df.target_instance != 'synth')]
+    train = df[df.depression_angle == TRAIN_DEP_ANGLE]
     grouped = train.groupby('target_class')
     print("\nTraining Samples")
     print(grouped.target_class.count())
 
     # Synth Samples
-    synths = df[(df.label == 'train') & (df.target_instance == 'synth')]
+    synths = df[df.target_instance == 'synth']
     grouped = synths.groupby('target_class')
     print("\nSynthetic Samples")
     print(grouped.target_class.count())
 
     # Test Sample
-    test = df[df.label == 'test']
+    test = df[df.depression_angle == TEST_DEP_ANGLE]
     grouped = test.groupby('target_class')
     print("\nTest Samples")
     print(grouped.target_class.count())
