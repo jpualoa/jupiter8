@@ -1,0 +1,5 @@
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+JUP8_PATH="$SCRIPT_DIR/jup8"
+ 
+# Setup Python
+export PYTHONPATH="$PYTHONPATH:$DIR:$JUP8_PATH"
