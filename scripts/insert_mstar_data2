@@ -3,6 +3,7 @@
 """
 # Standard imports
 import os
+import shutil
 import sys
 import argparse
 import logging
@@ -13,17 +14,19 @@ from pymongo import MongoClient
 
 VALID_TARGETS = ['D7', 'T62', '2S1', 'BRDM_2', 'ZIL131', 'ZSU_23_4', 'SLICY']
 FILE_EXTENSION = '.JPG'
-DATABASE = 'mstar'
+DATABASE = 'mstar2'
 COLLECTION = 'targets'
+TRAIN_DIR = '/projects/jupiter8/data/train'
+TEST_DIR = '/projects/jupiter8/data/test'
 
 log = logging.getLogger(__name__)
 
 def get_db():
     client = MongoClient()
-    db = client.mstar
+    db = client[DATABASE]
     return db
 
-def find_images(directory):
+def process_images(directory):
     documents = []
     for dirpath, dirnames, filenames in os.walk(directory):
         basedir = os.path.basename(dirpath)
@@ -39,13 +42,31 @@ def find_images(directory):
         if basedir in VALID_TARGETS:
             log.debug("found target directory: %s" % dirpath)
             klass= basedir
+            # Check if training (15_DEG) or test (17_DEG) data
+            if dep_angle == '15_DEG':
+                dest = os.path.join(TRAIN_DIR, klass)
+                label='train'
+            elif dep_angle == '17_DEG':
+                dest = os.path.join(TEST_DIR, klass)
+                label='test'
+            else:
+                log.info("skipping targets, not using dep_angle %s" % dep_angle)
+            # Make subdirectory
+            if not os.path.exists(dest): os.mkdir(dest)
+            # Copy JPG files
             for f in filenames:
                 if not f.endswith(FILE_EXTENSION): continue
-                full_name = os.path.join(dirpath, f)
-                doc = {'filename': full_name, 'depression_angle': dep_angle,
-                       'collection': collection, 'scene': scene,
-                       'target_class': klass}
-                documents.append(doc)
+                new_path = os.path.join(dest, f)
+                try:
+                    shutil.copy(os.path.join(dirpath,f), new_path)
+                except Exception as err:
+                    log.error(err)
+                    continue
+                else:
+                    doc = {'filename': new_path, 'depression_angle': dep_angle,
+                           'collection': collection, 'scene': scene,
+                           'target_class': klass, 'label': label}
+                    documents.append(doc)
     return documents
 
 def insert_metadata(dbname, collection, documents):
@@ -77,7 +98,7 @@ def main(args):
         raise RuntimeError("%s does not exist" % args.dir)
     log.info("Searching directory %s" % args.dir)
     log.info("Database: %s, Collection: %s" % (args.database, args.collection))
-    documents = find_images(args.dir)
+    documents = process_images(args.dir)
     if not documents:
         log.warn("No images found in %d or its subdirectories" % args.dir)
     else:
