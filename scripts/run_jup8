@@ -1,0 +1,177 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import sys
+import argparse
+import logging
+
+# External dependencies
+import numpy as np
+import matplotlib.pyplot as plt
+from keras.applications.resnet50 import ResNet50
+from keras.optimizers import Adam, SGD
+from keras.layers import Input, Dense, GlobalAveragePooling2D
+from keras.models import Model
+from keras.callbacks import ModelCheckpoint, EarlyStopping, CSVLogger
+from keras.preprocessing import image
+from sklearn.metrics import classification_report, confusion_matrix
+
+# Local imports
+from data.load import get_training_generator, get_test_generator
+from imgproc.filters import center_crop
+from aconv import get_aconv
+from analysis.visualize import plot_history
+from utils.argutils import valid_path
+
+IMG_WIDTH = 128
+IMG_HEIGHT = 128
+IMG_CHANNELS = 1
+DEFAULT_SAVE_PERIOD = 5
+DEFAULT_EPOCHS = 20
+DEFAULT_BATCH_SIZE = 32
+DEFAULT_VERBOSITY = 0
+DEFAULT_VALIDATION_SPLIT = 0.1
+CHECKPOINT_FILEPATH = "weights.{epoch:02d}.hdf5"
+
+TRAIN_DIR = '/projects/jupiter8/data/train'
+VALIDATION_DIR = '/projects/jupiter8/data/validation'
+
+log = logging.getLogger(__name__)
+
+def get_parser():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('mode', choices=['test', 'train'],
+        help="""test or train mode""")
+    parser.add_argument('outdir', type=valid_path,
+        help="""Output directory for training results""")
+    # Image Options
+    imggroup = parser.add_argument_group("Image Options")
+    imggroup.add_argument('--width', type=int, 
+        default=IMG_WIDTH,
+        help="""input image width""")
+    imggroup.add_argument('--height', type=int, 
+        default=IMG_HEIGHT,
+        help="""input image height""")
+    imggroup.add_argument('--channels', type=int, 
+        default=IMG_CHANNELS,
+        help="""input image number of channels""")
+
+    parser.add_argument('--save-period', dest='save_period', type=int,
+        default=DEFAULT_SAVE_PERIOD,
+        help="""How often (per epoch) to save model state""")
+
+    parser.add_argument('--max-samples', type=int,
+        dest='max_samples',
+        default=None,
+        help="""maximum number of samples PER CLASS to use """)
+
+    parser.add_argument('--epochs', type=int,
+        default=DEFAULT_EPOCHS,
+        help="""number of training epochs""")
+
+    parser.add_argument('--verbosity', type=int,
+        default=DEFAULT_VERBOSITY,
+        help="""verbosity mode 0 = silent, 1 = progress bar, 2 = one line per epoch""")
+
+    parser.add_argument('--batch', type=int,
+        default=DEFAULT_BATCH_SIZE,
+        help="""training batch size""")
+
+    parser.add_argument('--split', type=float,
+        default=DEFAULT_VALIDATION_SPLIT,
+        help="""percentage of validation data to split off of training data""")
+
+    parser.add_argument('--use-synths', action='store_true', dest='use_synths',
+        help="""train with synthetic images""")
+    return parser
+
+def get_callbacks(args):
+    FILEPATH = "weights.{epoch:02d}.hdf5"
+    checkpoint = ModelCheckpoint(filepath=os.path.join(args.outdir, FILEPATH),
+                                 monitor='val_loss',
+                                 verbose=args.verbosity,
+                                 save_best_only=True,
+                                 period=args.save_period)
+    csv_logger = CSVLogger(filename=os.path.join(args.outdir, 'training.log'),
+                           separator=',',
+                           append=False)
+    return [checkpoint, csv_logger]
+
+
+def crop_generator(gen, output_shape):
+    while True:
+        batch_x, batch_y = next(gen)
+        num_x = batch_x.shape[0]
+        # Crop X
+        batch_crops = np.zeros((num_x, output_shape[0], output_shape[1]))
+        for i in range(num_x):
+            batch_crops[i] = center_crop(batch_x[i], output_shape)
+        yield (batch_crops, batch_y)
+
+                                 
+def train(args):
+    train_datagen = image.ImageDataGenerator(rescale=1./255,
+                                             rotation_range=20,
+                                             width_shift_range=0.2,
+                                             height_shift_range=0.2,
+                                             horizontal_flip=True,
+                                             data_format='channels_last')
+
+    val_datagen = image.ImageDataGenerator(rescale=1./255, data_format='channels_last')
+
+    train_generator = train_datagen.flow_from_directory(
+        TRAIN_DIR,
+        target_size=(128, 128),
+        batch_size=32,
+        color_mode='grayscale',
+        class_mode='categorical')
+
+    val_generator = val_datagen.flow_from_directory(
+        VALIDATION_DIR,
+        target_size=(128, 128),
+        batch_size=32,
+        color_mode='grayscale',
+        class_mode='categorical')
+    
+    # A-ConvNets model
+    model = get_aconv(input_shape=(128, 128, 1))
+    model.summary()
+    opt = SGD(lr=0.0001, momentum=0.9) 
+    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['categorical_accuracy'])
+    history = model.fit_generator(train_generator,
+                                  epochs=args.epochs,
+                                  steps_per_epoch=train_generator.samples // args.batch,
+                                  verbose=args.verbosity,
+                                  validation_data=val_generator,
+                                  #validation_steps=val_generator.samples // args.batch,
+                                  validation_steps=25,
+                                  callbacks=get_callbacks(args))
+    return history
+
+
+def test(args):
+    raise NotImplementedError
+    
+    
+def main(args):
+    if args.mode == 'test':
+        history = test(args)
+    elif args.mode == 'train':
+        history = train(args)
+    else:
+        raise RuntimeError("mode %s not supported" % args.mode)
+    return
+
+if __name__ == '__main__':
+    logging.basicConfig(level=20)
+    parser = get_parser()
+    args = parser.parse_args()
+    print(args)
+    try:
+        main(args)
+    except Exception as err:
+        log.error(err, exc_info=True)
+        exit(1)
+    else:
+        exit(0)
