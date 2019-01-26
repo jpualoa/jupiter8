@@ -27,7 +27,7 @@ IMG_WIDTH = 128
 IMG_HEIGHT = 128
 IMG_CHANNELS = 1
 DEFAULT_SAVE_PERIOD = 5
-DEFAULT_EPOCHS = 20
+DEFAULT_EPOCHS = 50
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_VERBOSITY = 0
 DEFAULT_VALIDATION_SPLIT = 0.1
@@ -35,6 +35,7 @@ CHECKPOINT_FILEPATH = "weights.{epoch:02d}.hdf5"
 
 TRAIN_DIR = '/projects/jupiter8/data/train'
 VALIDATION_DIR = '/projects/jupiter8/data/validation'
+TEST_DIR = '/projects/jupiter8/data/test'
 
 log = logging.getLogger(__name__)
 
@@ -44,7 +45,7 @@ def get_parser():
     parser.add_argument('mode', choices=['test', 'train'],
         help="""test or train mode""")
     parser.add_argument('outdir', type=valid_path,
-        help="""Output directory for training results""")
+        help="""Output directory for test/training results""")
     # Image Options
     imggroup = parser.add_argument_group("Image Options")
     imggroup.add_argument('--width', type=int, 
@@ -56,6 +57,9 @@ def get_parser():
     imggroup.add_argument('--channels', type=int, 
         default=IMG_CHANNELS,
         help="""input image number of channels""")
+
+    parser.add_argument('--weights', type=valid_path, default=None,
+        help="""Weights file to load""")
 
     parser.add_argument('--save-period', dest='save_period', type=int,
         default=DEFAULT_SAVE_PERIOD,
@@ -99,14 +103,14 @@ def get_callbacks(args):
     return [checkpoint, csv_logger]
 
 
-def crop_generator(gen, output_shape):
+def crop_generator(gen, out_width, out_height):
     while True:
         batch_x, batch_y = next(gen)
         num_x = batch_x.shape[0]
         # Crop X
-        batch_crops = np.zeros((num_x, output_shape[0], output_shape[1]))
+        batch_crops = np.zeros((num_x, out_width, out_height, 1))
         for i in range(num_x):
-            batch_crops[i] = center_crop(batch_x[i], output_shape)
+            batch_crops[i] = center_crop(batch_x[i], out_width, out_height)
         yield (batch_crops, batch_y)
 
                                  
@@ -126,6 +130,8 @@ def train(args):
         batch_size=32,
         color_mode='grayscale',
         class_mode='categorical')
+    num_samples = train_generator.samples
+    train_generator = crop_generator(train_generator, 88, 88)
 
     val_generator = val_datagen.flow_from_directory(
         VALIDATION_DIR,
@@ -133,15 +139,18 @@ def train(args):
         batch_size=32,
         color_mode='grayscale',
         class_mode='categorical')
+    val_generator = crop_generator(val_generator, 88, 88)
     
     # A-ConvNets model
-    model = get_aconv(input_shape=(128, 128, 1))
+    #model = get_aconv(input_shape=(128, 128, 1))
+    model = get_aconv(input_shape=(88, 88, 1))
     model.summary()
-    opt = SGD(lr=0.0001, momentum=0.9) 
+    #opt = SGD(lr=0.0001, momentum=0.9) 
+    opt = SGD(lr=0.001, momentum=0.9) 
     model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['categorical_accuracy'])
     history = model.fit_generator(train_generator,
                                   epochs=args.epochs,
-                                  steps_per_epoch=train_generator.samples // args.batch,
+                                  steps_per_epoch=num_samples // args.batch,
                                   verbose=args.verbosity,
                                   validation_data=val_generator,
                                   #validation_steps=val_generator.samples // args.batch,
@@ -151,7 +160,41 @@ def train(args):
 
 
 def test(args):
-    raise NotImplementedError
+    if args.weights is None:
+        raise ValueError("weights file not provided")
+    # Setup model
+    input_shape = (args.width, args.height, args.channels)
+    log.info("getting model")
+    model = get_aconv(input_shape=input_shape)
+    log.info("loading weights")
+    model.load_weights(args.weights)
+    opt = SGD(lr=0.001, momentum=0.9) 
+    model.compile(optimizer=opt, loss='categorical_crossentropy', metrics=['categorical_accuracy'])
+    model.summary()
+    
+    # Setup generator
+    log.info("setting up data generator")
+    test_datagen = image.ImageDataGenerator(rescale=1./255, data_format='channels_last')
+    test_generator = test_datagen.flow_from_directory(
+        TEST_DIR,
+        target_size=(128, 128),
+        batch_size=32,
+        color_mode='grayscale',
+        class_mode='categorical')
+    num_samples = len(test_generator.filenames)
+    log.info("%d samples loaded" % num_samples)
+
+    # Evaluate
+    y_pred = model.predict_generator(test_generator, steps=num_samples // args.batch+1)
+    np.savetxt(os.path.join(args.outdir, 'predictions.log'), y_pred, delimiter=',')
+    np.savetxt(os.path.join(args.outdir, 'test_labels.log'), test_generator.classes, delimiter=',')
+    y_pred = np.argmax(y_pred, axis=1)
+    #log.info(y_pred)
+    print('***', len(y_pred))
+    print("Confusion Matrix")
+    print(confusion_matrix(test_generator.classes, y_pred))
+
+    return
     
     
 def main(args):
