@@ -11,7 +11,8 @@ from keras.models import Model
 from keras.layers import Conv2D, MaxPooling2D, Dropout, Dense, Flatten
 from keras import Input
 
-INPUT_SHAPE = (128, 128, 1)
+#INPUT_SHAPE = (128, 128, 1)
+INPUT_SHAPE = (88, 88, 1)
 
 def get_aconv(input_shape=INPUT_SHAPE):
     input_tensor = Input(shape=input_shape)
@@ -23,9 +24,10 @@ def get_aconv(input_shape=INPUT_SHAPE):
     x = MaxPooling2D((2,2))(x)
     x = Dropout(0.5)(x)
     x = Conv2D(128, (5,5), activation='relu')(x)
+    x = Conv2D(10, (3,3), activation='softmax')(x)
     x = Flatten()(x)
-    x = Dense(64, activation='relu')(x)
-    x = Dense(10, activation='softmax')(x)
+    #x = Dense(64, activation='relu')(x)
+    #x = Dense(10, activation='softmax')(x)
     model = Model(input_tensor, x)
     return model
 
