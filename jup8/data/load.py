@@ -9,8 +9,8 @@ from sklearn.model_selection import train_test_split
 DEFAULT_DB_NAME = 'mstar'
 DEFAULT_COLLECTION_NAME = 'targets'
 IMAGE_DIRECTORY = "/projects/jupiter8/data/train"
-TRAINING_DEP_ANGLE = '15_DEG'
-TEST_DEP_ANGLE = '17_DEG'
+TRAINING_DEP_ANGLE = '17_DEG'
+TEST_DEP_ANGLE = '15_DEG'
 
 client = MongoClient()
 db = client[DEFAULT_DB_NAME]
