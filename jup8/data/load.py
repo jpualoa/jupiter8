@@ -6,11 +6,13 @@ from pymongo import MongoClient
 from keras.preprocessing import image
 from sklearn.model_selection import train_test_split
 
-DEFAULT_DB_NAME = 'mstar'
+DEFAULT_DB_NAME = 'mstar2'
 DEFAULT_COLLECTION_NAME = 'targets'
-IMAGE_DIRECTORY = "/projects/jupiter8/data/train"
-TRAINING_DEP_ANGLE = '17_DEG'
+#IMAGE_DIRECTORY = "/projects/jupiter8/data/train"
+IMAGE_DIRECTORY = "/home/jason/data/mstar/all_targets/"
+TRAIN_DEP_ANGLE = '17_DEG'
 TEST_DEP_ANGLE = '15_DEG'
+VALID_EXTENSIONS = ['.jpg']
 
 client = MongoClient()
 db = client[DEFAULT_DB_NAME]
@@ -18,10 +20,22 @@ collection = db[DEFAULT_COLLECTION_NAME]
 
 
 def get_samples_df(query, qty=None, reindex=False):
+    """Returns a data frame of samples
+
+    Args:
+        query:   query dictionary for DB
+        qty:     number of samples PER CLASS to return
+        reindex: reindexes dataframe from 0 to n 
+    """
     cursor = collection.find(query)
     if cursor.count() < 1:
         raise RuntimeError("no results")
-    df = pd.DataFrame(list(cursor))
+    # Only include files with a valid extension
+    res = filter(lambda x: os.path.splitext(x['filename'])[1] in VALID_EXTENSIONS,
+        list(cursor))
+    df = pd.DataFrame(res)
+    # Strip path from filenames
+    df['filename'] = df.filename.apply(os.path.basename)
     if qty is None: # return all samples
         samples = df
     else: # return a random samples of the results
@@ -35,7 +49,7 @@ def get_samples_df(query, qty=None, reindex=False):
 
 def get_training_generator(img_shape, batch_size=32, qty=None, exclude_synths=True):
     """Returns a training and validation data generators"""
-    query = {'depression_angle': TRAINING_DEP_ANGLE}
+    query = {'depression_angle': TRAIN_DEP_ANGLE}
     if exclude_synths:
         query['target_instance'] = {'$not': {'$in':['synth']}}
     df = get_samples_df(query, qty=qty)
@@ -76,7 +90,7 @@ def get_test_generator(img_shape, batch_size=32, qty=None, exclude_synths=True):
     query = {'depression_angle': TEST_DEP_ANGLE}
     if exclude_synths:
         query['target_instance'] = {'$not': {'$in':['synth']}}
-    df = get_samples_df(query, qty=qty, exclude_synths=exclude_synths)
+    df = get_samples_df(query, qty=qty)
 
     gen = image.ImageDataGenerator(rescale=1./255,
                                    data_format='channels_last')
