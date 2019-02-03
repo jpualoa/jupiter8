@@ -5,6 +5,7 @@ import argparse
 import logging
 import json
 import datetime
+import functools
 
 # External dependencies
 import pymongo
@@ -13,12 +14,14 @@ from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.model_selection import train_test_split
 from keras.models import Model
 from keras.optimizers import SGD
-from keras.callbacks import ModelCheckpoint, EarlyStopping, CSVLogger
+from keras.callbacks import ModelCheckpoint, EarlyStopping
+from keras.callbacks import CSVLogger, LearningRateScheduler
 
 # Local imports
 from data.load2 import load_images, get_training_generator
 from utils.argutils import valid_path
 from aconv import get_aconv
+from training.learning import step_decay, get_lr_metric
 
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
@@ -29,6 +32,7 @@ DEFAULT_EPOCHS = 50
 DEFAULT_BATCH_SIZE = 32
 DEFAULT_VERBOSITY = 0
 DEFAULT_VALIDATION_SPLIT = 0.1
+DEFAULT_LEARN_RATE = 0.001
 CHECKPOINT_FILEPATH = "weights.{epoch:02d}.hdf5"
 TRAINING_LOG = 'training.log'
 
@@ -64,6 +68,10 @@ def get_parser():
         default=DEFAULT_BATCH_SIZE,
         help="""training batch size""")
 
+    parser.add_argument('--learn-rate', type=float, dest='learn_rate',
+        default=DEFAULT_LEARN_RATE,
+        help="""Learning rate""")
+
     parser.add_argument('--split', type=float,
         default=DEFAULT_VALIDATION_SPLIT,
         help="""percentage of validation data to split off of training data""")
@@ -84,7 +92,8 @@ def get_callbacks(args):
     csv_logger = CSVLogger(filename=os.path.join(args.outdir, TRAINING_LOG),
                            separator=',',
                            append=False)
-    return [checkpoint, csv_logger]
+    lrate = LearningRateScheduler(functools.partial(step_decay, lr_in=args.learn_rate))
+    return [checkpoint, csv_logger, lrate]
 
 
 def main(args):
@@ -138,8 +147,9 @@ def main(args):
     model = get_aconv(input_shape=(88, 88, 1))
     model.summary()
     opt = SGD(lr=0.001, momentum=0.9)
+    lr_metric = get_lr_metric(opt) # current learning rate metric
     model.compile(optimizer=opt, loss='categorical_crossentropy',
-        metrics=['categorical_accuracy'])
+        metrics=['categorical_accuracy', lr_metric])
 
     # Train model
     try:
