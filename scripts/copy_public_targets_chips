@@ -9,13 +9,9 @@ import shutil
 # External dependencies
 from pymongo import MongoClient
 
-# Local imports
-from mstar2jpeg import convert_image_target
-from mstar2jpeg import convert_image_clutter
-
-FILE_PREFIX = 'HB0'
+FILE_PREFIX = 'HB'
 VALID_TARGETS = ['BMP2', 'BTR70', 'T72']
-
+FILE_EXTENSIONS = ['.JPG', '.jpg']
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
 
@@ -28,6 +24,8 @@ def get_db():
 
 def process_images(indir, outdir):
     documents = []
+    num_files_found = 0
+    num_files_copied = 0
     for dirpath, dirnames, filenames in os.walk(indir):
         basedir = os.path.basename(dirpath)
         if basedir.endswith('_DEG'):
@@ -41,16 +39,22 @@ def process_images(indir, outdir):
             instance = basedir
             for f in filenames:
                 if not f.startswith(FILE_PREFIX): continue
-                new_path = os.path.join(args.outdir, f)
+                if not os.path.splitext(f)[1] in FILE_EXTENSIONS: continue
+                num_files_found +=1
+                # Prepend class name to filename
+                new_f = '_'.join((klass, f))
+                new_path = os.path.join(args.outdir, new_f)
                 try:
                     shutil.copy(os.path.join(dirpath, f), new_path)
                 except:
-                    log.error("failed to convert %s" % fname, exc_info=True)
+                    log.error("failed to copy %s" % f, exc_info=True)
                     continue
                 else:
+                    num_files_copied +=1
                     doc = {'filename': new_path, 'depression_angle': dep_angle,
                            'instance':instance, 'target_class': klass}
                     documents.append(doc)
+    log.info("Copied %d of %d files found" % (num_files_copied, num_files_found))
     return documents
 
 def insert_metadata(collection, documents):
@@ -64,7 +68,7 @@ def insert_metadata(collection, documents):
     return
 
 def get_parser():
-    usage = "Command line script to convert a directory of MSTAR image files to JPEG and insert metadata into DB"
+    usage = "Command line script to MSTAR image files to a common directory and insert metadata into DB"
     parser = argparse.ArgumentParser(usage=usage)
     parser.add_argument('indir', type=str, help="image directory to walk")
     parser.add_argument('outdir', type=str, help="directory to copy images to")

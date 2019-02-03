@@ -13,7 +13,7 @@ from pymongo import MongoClient
 # Local imports
 
 VALID_TARGETS = ['D7', 'T62', '2S1', 'BRDM_2', 'ZIL131', 'ZSU_23_4', 'SLICY']
-FILE_EXTENSION = '.JPG'
+FILE_EXTENSIONS = ['.jpg', '.JPG']
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
 
@@ -25,6 +25,8 @@ def get_db():
     return db
 
 def process_images(indir, outdir):
+    num_files_found = 0
+    num_files_copied = 0
     documents = []
     for dirpath, dirnames, filenames in os.walk(indir):
         basedir = os.path.basename(dirpath)
@@ -42,18 +44,28 @@ def process_images(indir, outdir):
             klass= basedir
             # Copy JPG files
             for f in filenames:
-                if not f.endswith(FILE_EXTENSION): continue
-                new_path = os.path.join(outdir, f)
+                # Check if file is a JPEG
+                if os.path.splitext(f)[1] not in FILE_EXTENSIONS: continue
+                num_files_found +=1
+                # Prepend class name to filename
+                new_f = '_'.join((klass, f))
+                # Reformat extension if 'JPG'
+                prefix, ext = os.path.splitext(new_f)
+                if ext == '.JPG':
+                    new_f = '.'.join((prefix, 'jpg'))
+                new_path = os.path.join(outdir, new_f)
                 try:
                     shutil.copy(os.path.join(dirpath,f), new_path)
                 except Exception as err:
                     log.error(err)
                     continue
                 else:
+                    num_files_copied +=1
                     doc = {'filename': new_path, 'depression_angle': dep_angle,
                            'collection': collection, 'scene': scene,
                            'target_class': klass}
                     documents.append(doc)
+    log.info("Copied %d of %d files found" % (num_files_copied, num_files_found))
     return documents
 
 def insert_metadata(collection, documents):
