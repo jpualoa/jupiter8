@@ -134,7 +134,7 @@ def main(args):
     labels = onehot_enc.fit_transform(labels)
     
     # Write out label map
-    keys = list(label_enc.classes_).sort()
+    keys = list(label_enc.classes_)
     values = range(len(keys))
     label_map = dict(zip(keys, values))
     with open(os.path.join(subdir, LABEL_MAP_FILE), 'w') as f:
