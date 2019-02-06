@@ -7,7 +7,7 @@ from keras.preprocessing import image
 from sklearn.model_selection import train_test_split
 
 # Local imports
-from jup8.imgproc.filters import center_crop
+from imgproc.filters import center_crop
 
 IMG_HEIGHT = 128
 IMG_WIDTH = 128
@@ -63,3 +63,14 @@ def get_training_generator(images, labels, batch_size=32):
 
     return (train, val)
 
+def get_test_generator(images, labels, batch_size=32):
+    """Returns a test data generator
+
+    Args:
+        images: array of image data
+        labels: list of encoded (int) labels for images
+    """
+    gen = image.ImageDataGenerator(rescale=1./255,
+                                   data_format='channels_last')
+    test = gen.flow(images, labels, batch_size=batch_size)
+    return test

@@ -13,8 +13,8 @@ def get_lr_metric(optimizer):
 def step_decay(epoch, lr_in):
     """Reduces learning rate at fixed epoch intervals
     """
-    drop = 0.1
-    epochs_drop = 50
+    drop = 0.5
+    epochs_drop = 100
     factor = math.pow(drop, math.floor((1 + epoch)/epochs_drop))
     if factor == 0:
         lrate = lr_in

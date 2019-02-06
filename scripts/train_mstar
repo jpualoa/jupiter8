@@ -13,7 +13,7 @@ import pandas as pd
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.model_selection import train_test_split
 from keras.models import Model
-from keras.optimizers import SGD
+from keras.optimizers import SGD, Adadelta
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.callbacks import CSVLogger, LearningRateScheduler
 
@@ -83,23 +83,25 @@ def get_parser():
         help="""Prefix to add to created session output subdirectory""")
     return parser
 
-def get_callbacks(args):
-    checkpoint = ModelCheckpoint(filepath=os.path.join(args.outdir, CHECKPOINT_FILEPATH),
+def get_callbacks(outdir, learn_rate=0.01, verbosity=0, save_period=5):
+    checkpoint = ModelCheckpoint(filepath=os.path.join(outdir, CHECKPOINT_FILEPATH),
                                  monitor='val_loss',
-                                 verbose=args.verbosity,
+                                 verbose=verbosity,
                                  save_best_only=True,
-                                 period=args.save_period)
-    csv_logger = CSVLogger(filename=os.path.join(args.outdir, TRAINING_LOG),
+                                 period=save_period)
+    csv_logger = CSVLogger(filename=os.path.join(outdir, TRAINING_LOG),
                            separator=',',
                            append=False)
-    lrate = LearningRateScheduler(functools.partial(step_decay, lr_in=args.learn_rate))
-    return [checkpoint, csv_logger, lrate]
+    #lrate = LearningRateScheduler(functools.partial(step_decay, lr_in=learn_rate))
+    #return [checkpoint, csv_logger, lrate]
+    return [checkpoint, csv_logger]
 
 
 def main(args):
     # Make subdirectory for session
     tstamp = datetime.datetime.utcnow()
     subdir = tstamp.strftime("%Y%m%d%H%M%S")
+    subdir = '.'.join(('train', subdir))
     if args.prefix:
         subdir = '_'.join((args.prefix, subdir))
     subdir = os.path.join(args.outdir, subdir)
@@ -132,10 +134,10 @@ def main(args):
     labels = onehot_enc.fit_transform(labels)
     
     # Write out label map
-    keys = list(label_enc.classes_)
+    keys = list(label_enc.classes_).sort()
     values = range(len(keys))
     label_map = dict(zip(keys, values))
-    with open(os.path.join(args.outdir, LABEL_MAP_FILE), 'w') as f:
+    with open(os.path.join(subdir, LABEL_MAP_FILE), 'w') as f:
         json.dump(label_map, f)
 
     # Get generators
@@ -146,12 +148,15 @@ def main(args):
     #model = get_aconv(input_shape=(128, 128, 1))
     model = get_aconv(input_shape=(88, 88, 1))
     model.summary()
-    opt = SGD(lr=0.001, momentum=0.9)
+    #opt = SGD(lr=0.001, momentum=0.9)
+    opt = Adadelta(epsilon=1e-6, rho=0.99)
     lr_metric = get_lr_metric(opt) # current learning rate metric
     model.compile(optimizer=opt, loss='categorical_crossentropy',
         metrics=['categorical_accuracy', lr_metric])
 
     # Train model
+    cbacks = get_callbacks(subdir, learn_rate=args.learn_rate,
+        verbosity=args.verbosity, save_period=args.save_period)
     try:
         history = model.fit_generator(traingen,
                                   epochs=args.epochs,
@@ -159,7 +164,7 @@ def main(args):
                                   verbose=args.verbosity,
                                   validation_data=valgen,
                                   validation_steps=valgen.n // valgen.batch_size,
-                                  callbacks=get_callbacks(args))
+                                  callbacks=cbacks)
     except KeyboardInterrupt:
         log.info('Keyboard Interrupt detected')
     finally:
