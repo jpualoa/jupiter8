@@ -21,40 +21,32 @@ from utils.argutils import valid_path
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
 DEP_ANGLE_TEST = '15_DEG'
+LABEL_MAP = 'label_map.json'
+WEIGHTS = 'weights.%02d.h5'
+CSV_FILE = 'test_samples.csv'
 
 log = logging.getLogger(__name__)
 
 def get_parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    
     parser.add_argument('outdir', type=valid_path,
         help="""Output directory for test/training results""")
 
-    parser.add_argument('weights', type=valid_path,
+    parser.add_argument('weightsnum', type=int,
         help="""Weights file to load""")
-
-    parser.add_argument('label_map', type=valid_path,
-        help="""Label map json file""")
 
     parser.add_argument('--batch', type=int, default=32,
         help="""Batch size""")
 
-    parser.add_argument('--prefix', type=str, default=None,
-        help="""Prefix to add to created session output subdirectory""")
+    parser.add_argument('--max-samples', type=int, dest='max_samples',
+        default=None,
+        help="""Maximum number of samples to use PER CLASS""")
     return parser
 
 
 def main(args):
-    # Make subdirectory for session
-    tstamp = datetime.datetime.utcnow()
-    subdir = tstamp.strftime("%Y%m%d%H%M%S")
-    subdir = '.'.join(('test', subdir))
-    if args.prefix:
-        subdir = '_'.join((args.prefix, subdir))
-    subdir = os.path.join(args.outdir, subdir)
-    os.mkdir(os.path.join(args.outdir, subdir), 0o755)
-    log.info("Results will be logged to %s" % subdir)
-
     # Setup DB connection
     client = pymongo.MongoClient()
     db = client[DATABASE]
@@ -67,6 +59,14 @@ def main(args):
     # Construct data frame
     df = pd.DataFrame(list(cursor))
 
+    # Limit samples used per class
+    if args.max_samples:
+        grouped = df.groupby('target_class')
+        subsets = []
+        for name, group in grouped:
+            subsets.append(group.sample(args.max_samples))
+        df = pd.concat(subsets)
+
     # Load images
     log.info("loading images")
     images = load_images(list(df.filename), crop_dim=(128,128))
@@ -74,9 +74,9 @@ def main(args):
 
     # Setup labels
     log.info("configuring labels")
-    with open(args.label_map, 'r') as f:
+    with open(os.path.join(args.outdir, LABEL_MAP), 'r') as f:
         label_map = json.load(f)
-    labels = df.target_class.apply(lambda x: label_map[x])
+    labels = list(df.target_class.apply(lambda x: label_map[x]))
     log.info("loaded %d labels" % len(labels))
 
     # Get data generator
@@ -86,15 +86,15 @@ def main(args):
     #model = get_aconv((88, 88, 1))
     model=get_model(input_shape=(128,128,1))
     log.info("loading model weights")
-    model.load_weights(args.weights)
+    model.load_weights(os.path.join(args.outdir,WEIGHTS % args.weightsnum))
     model.summary()
 
     # Evaluate
     log.info("predicting on samples")
     y = model.predict_generator(datagen, steps=datagen.n // args.batch + 1)
-    np.savetxt(os.path.join(subdir, 'predictions.log'), y, delimiter=',')
-    predictions = np.argmax(y, axis=1)
-    print(confusion_matrix(labels, predictions))
+    np.savetxt(os.path.join(args.outdir, 'predictions.log'), y, delimiter=',')
+    predictions = list(np.argmax(y, axis=1))
+    print(confusion_matrix(labels, predictions, labels=range(10)))
 
     return
 

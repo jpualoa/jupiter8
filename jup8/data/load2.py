@@ -70,5 +70,5 @@ def get_test_generator(images, labels, batch_size=32):
     """
     gen = image.ImageDataGenerator(rescale=1./255,
                                    data_format='channels_last')
-    test = gen.flow(images, labels, batch_size=batch_size)
+    test = gen.flow(images, labels, batch_size=batch_size, shuffle=False)
     return test

@@ -13,7 +13,7 @@ from pymongo import MongoClient
 # Local imports
 
 VALID_TARGETS = ['D7', 'T62', '2S1', 'BRDM_2', 'ZIL131', 'ZSU_23_4', 'BTR_60']
-FILE_EXTENSIONS = ['.jpg', '.JPG']
+FILE_EXTENSIONS = ['.jpg']
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
 

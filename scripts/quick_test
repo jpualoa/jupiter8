@@ -1,0 +1,91 @@
+#!/usr/bin/env python
+# Standrad imports
+import os
+import json
+
+# External dependencies
+import numpy as np
+import cv2
+import keras
+import pymongo
+import pandas as pd
+from sklearn.metrics import confusion_matrix
+
+# Local imports
+from imgproc.filters import center_crop
+
+TEST_IMAGES = [
+    "/data/mstar/all_targets/BTR70_HB03398.004.jpg",
+    "/data/mstar/all_targets/BTR70_HB03399.004.jpg",
+    "/data/mstar/all_targets/BTR70_HB03400.004.jpg",
+    "/data/mstar/all_targets/BTR70_HB03401.004.jpg",
+    "/data/mstar/all_targets/BTR70_HB03402.004.jpg"
+]
+
+MODEL_JSON = 'model.json'
+WEIGHTS_FILE = 'weights.20.h5'
+DATABASE = 'mstar2'
+COLLECTION = 'targets'
+TEST_DEP_ANGLE = '15_DEG'
+LABEL_MAP = 'label_map.json'
+
+def load_image(filename):
+    img = cv2.imread(filename, 0)
+    img = img / 255. # scale
+    img = center_crop(img, 128, 128)
+    img = np.expand_dims(img, axis=3)
+    return img
+
+def count_results(y):
+    d = {}
+    for label in y:
+        if label not in d:
+            d[label] = 0
+        d[label] += 1
+    return d
+
+def label_lookup(label_map):
+    d = {}
+    for k, v in label_map.items():
+        d[v] = k
+    return d
+
+def main(indir):
+    # Setup model
+    with open(os.path.join(indir, MODEL_JSON), 'r') as f:
+        model = keras.models.model_from_json(f.read())
+    weights = os.path.join(indir, WEIGHTS_FILE)
+    model.load_weights(weights)
+
+    # Setup dataframe
+    client = pymongo.MongoClient()
+    db = client[DATABASE]
+    cursor = db[COLLECTION].find({'depression_angle': TEST_DEP_ANGLE})
+    df = pd.DataFrame(list(cursor))
+
+    # Get label map
+    with open(os.path.join(indir, LABEL_MAP), 'r') as f:
+        label_map = json.load(f)
+
+    # Load images and predict
+    grouped = df.groupby('target_class')
+    for name, group in grouped:
+        print("Testing %s:" % name)
+        images = [load_image(img) for img in list(group.filename)]
+        y_pred = model.predict(np.array(images))
+        y_pred = np.array([np.argmax(y) for y in y_pred])
+        y_true = label_map[name] * np.ones(len(group))
+        res = count_results(y_pred)
+        print(res)
+        #for y in y_pred:
+        #    print(y)
+        #    print(np.argmax(y))
+        print('')
+        print(confusion_matrix(y_true, y_pred))
+    return
+
+if __name__ == '__main__':
+    import sys
+    indir = sys.argv[1]
+    main(indir)
+    exit(0)

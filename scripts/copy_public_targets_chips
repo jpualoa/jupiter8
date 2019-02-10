@@ -11,7 +11,7 @@ from pymongo import MongoClient
 
 FILE_PREFIX = 'HB'
 VALID_TARGETS = ['BMP2', 'BTR70', 'T72']
-FILE_EXTENSIONS = ['.JPG', '.jpg']
+FILE_EXTENSIONS = ['.jpg']
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
 
