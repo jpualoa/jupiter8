@@ -12,7 +12,7 @@ from imgproc.filters import center_crop
 IMG_HEIGHT = 128
 IMG_WIDTH = 128
 
-def load_images(filenames, resize_dim=(128,128), crop_dim=None):
+def load_images(filenames, crop_dim=None):
     """Returns an array of loaded images
 
     Args:
@@ -20,15 +20,12 @@ def load_images(filenames, resize_dim=(128,128), crop_dim=None):
         resize_dim: (rows, cols) image should be resized tp
         crop_dim:   (rows, cols) to crop to (if provided)
     """
-    rows, cols = resize_dim
     images = []
     for f in filenames:
         # Read image
         img = cv2.imread(f, 0)
-        # Resize
+        # Crop image
         in_rows, in_cols = img.shape
-        if (in_rows != rows) or (in_cols != cols):
-            img = cv2.resize(img, (rows, cols))
         if crop_dim:
             out_rows, out_cols = crop_dim
             img = center_crop(img, out_rows, out_cols)
@@ -37,7 +34,7 @@ def load_images(filenames, resize_dim=(128,128), crop_dim=None):
         images.append(img)
     return np.array(images)
 
-def get_training_generator(images, labels, batch_size=32):
+def get_training_generator(images, labels, batch_size=32, test_size=0.1):
     """Returns training and validator generators
 
     Args:
@@ -45,17 +42,18 @@ def get_training_generator(images, labels, batch_size=32):
         labels: list of encoded (int) labels for images
     """
     gen_train = image.ImageDataGenerator(rescale=1./255,
-                                         rotation_range=20,
-                                         width_shift_range=0.2,
-                                         height_shift_range=0.2,
-                                         horizontal_flip=True,
+                                         #rotation_range=20,
+                                         #width_shift_range=0.2,
+                                         #height_shift_range=0.2,
+                                         #horizontal_flip=True,
                                          data_format='channels_last')
     
     gen_val = image.ImageDataGenerator(rescale=1./255,
                                        data_format='channels_last')
 
     # Partition training and validation data
-    x_train, x_val, y_train, y_val = train_test_split(images, labels, test_size=0.1)
+    x_train, x_val, y_train, y_val = train_test_split(images, labels,
+        test_size=test_size)
 
     # Get data generators
     train = gen_train.flow(x_train, y_train, batch_size=batch_size)

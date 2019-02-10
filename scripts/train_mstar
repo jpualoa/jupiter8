@@ -16,11 +16,13 @@ from keras.models import Model
 from keras.optimizers import SGD, Adadelta
 from keras.callbacks import ModelCheckpoint, EarlyStopping
 from keras.callbacks import CSVLogger, LearningRateScheduler
+from keras.utils import to_categorical
 
 # Local imports
 from data.load2 import load_images, get_training_generator
 from utils.argutils import valid_path
 from aconv import get_aconv
+from small import get_model
 from training.learning import step_decay, get_lr_metric
 
 DATABASE = 'mstar2'
@@ -33,7 +35,7 @@ DEFAULT_BATCH_SIZE = 32
 DEFAULT_VERBOSITY = 0
 DEFAULT_VALIDATION_SPLIT = 0.1
 DEFAULT_LEARN_RATE = 0.001
-CHECKPOINT_FILEPATH = "weights.{epoch:02d}.hdf5"
+CHECKPOINT_FILEPATH = "weights.{epoch:02d}.h5"
 TRAINING_LOG = 'training.log'
 
 log = logging.getLogger(__name__)
@@ -121,32 +123,27 @@ def main(args):
     df = pd.DataFrame(list(cursor))
 
     # Load images
-    images = load_images(list(df.filename), crop_dim=(88,88))
+    images = load_images(list(df.filename), crop_dim=(128,128))
 
     # Encode labels - for categogorical crossentropy the labels must be
-    # one hot encoded. First we convert the class strings to integers
-    # using the LabelEncoder, resahpe the label array as a column vector,
-    # and finaly one hot encode with the OneHotEncoder
-    label_enc = LabelEncoder()
-    labels = label_enc.fit_transform(df.target_class) # Encode as integers
-    labels = labels.reshape(len(labels), 1)
-    onehot_enc = OneHotEncoder(sparse=False)
-    labels = onehot_enc.fit_transform(labels)
+    # one hot encoded
+    classes = df.target_class.unique()
+    num_classes = len(classes)
+    label_map = dict(zip(classes, range(num_classes)))
+    labels = df.target_class.apply(lambda x: label_map[x])
+    labels = to_categorical(labels, num_classes)
     
     # Write out label map
-    keys = list(label_enc.classes_)
-    values = range(len(keys))
-    label_map = dict(zip(keys, values))
     with open(os.path.join(subdir, LABEL_MAP_FILE), 'w') as f:
         json.dump(label_map, f)
 
     # Get generators
-    traingen, valgen = get_training_generator(images, labels, args.batch)
+    traingen, valgen = get_training_generator(images, labels, args.batch, args.split)
 
     # Setup model
     # A-ConvNets model
-    #model = get_aconv(input_shape=(128, 128, 1))
-    model = get_aconv(input_shape=(88, 88, 1))
+    #model = get_aconv(input_shape=(88, 88, 1))
+    model = get_model(input_shape=(128,128,1))
     model.summary()
     #opt = SGD(lr=0.001, momentum=0.9)
     opt = Adadelta(epsilon=1e-6, rho=0.99)

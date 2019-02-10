@@ -14,6 +14,7 @@ from sklearn.metrics import confusion_matrix
 
 # Local imports
 from aconv import get_aconv
+from small import get_model
 from data.load2 import load_images, get_test_generator
 from utils.argutils import valid_path
 
@@ -68,7 +69,7 @@ def main(args):
 
     # Load images
     log.info("loading images")
-    images = load_images(list(df.filename), crop_dim=(88,88))
+    images = load_images(list(df.filename), crop_dim=(128,128))
     log.info("loaded %d images" % len(images))
 
     # Setup labels
@@ -82,7 +83,8 @@ def main(args):
     datagen = get_test_generator(images, labels, args.batch)
 
     # Setup model
-    model = get_aconv((88, 88, 1))
+    #model = get_aconv((88, 88, 1))
+    model=get_model(input_shape=(128,128,1))
     log.info("loading model weights")
     model.load_weights(args.weights)
     model.summary()
