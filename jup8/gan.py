@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 
 log = logging.getLogger(__name__)
 
+SAMPLES_DIRNAME = 'samples'
+
 class GAN(object):
     def __init__(self, generator, discriminator, optimizer, latent_dim,
                  loss='binary_crossentropy', metrics=['accuracy']):
@@ -59,6 +61,9 @@ class GAN(object):
         print ("{epoch} [D loss: {d_loss:.4f}, acc.: {d_accuracy:.4f}, var:{d_loss_var:.4f}] [G loss: {g_loss:.4f}, var:{g_loss_var:.4f}]".format(**progress))
 
     def _save_samples(self, epoch):
+        samples_dir = os.path.join(self._outdir, SAMPLES_DIRNAME)
+        if not os.path.exists(samples_dir):
+            os.mkdir(samples_dir, 0o755)
         r, c = 5, 5
         noise = np.random.normal(0, 1, (r * c, self.latent_dim))
         gen_imgs = self.generator.predict(noise)
@@ -73,7 +78,7 @@ class GAN(object):
                 axs[i,j].imshow(gen_imgs[cnt, :,:,0], cmap='gray')
                 axs[i,j].axis('off')
                 cnt += 1
-        fname = os.path.join(self._outdir, "synth_%d.png" % epoch)
+        fname = os.path.join(samples_dir, "synth_%d.png" % epoch)
         fig.savefig(fname)
         plt.close()
 
