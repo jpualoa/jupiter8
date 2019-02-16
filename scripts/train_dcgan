@@ -1,18 +1,46 @@
 #!/usr/bin/env python
 import os
-import sys
 import datetime
 import argparse
 import json
+import logging
+import yaml
 
 # Keras dependencies
+import pymongo
+import pandas as pd
 from keras.optimizers import Adam
 from keras.models import model_from_json
 
 # Local imports
-sys.path.append(os.path.expandvars("$JUPITER8_HOME/python"))
-from dcgan.dcgan import DCGAN, get_generator, get_discriminator
-from data.load_mstar import load_data
+from jup8.dcgan.dcgan import DCGAN, get_generator, get_discriminator
+from jup8.data.load2 import load_images
+try:
+    from bmt.utilities.git import log_repo_state
+    BMT_IMPORT = True
+except ImportError:
+    BMT_IMPORT = False
+
+JUP8_GITPATH = 'JUP8_GITPATH'
+DATABASE = 'mstar2'
+COLLECTION = 'targets'
+RANDOM_SEED = 1234
+TRAIN_DEP_ANGLE = '17_DEG'
+TARGETS = [
+    "BTR_60",
+    "2S1",
+    "BRDM_2",
+    "D7",
+    "T62",
+    "ZIL131",
+    "ZSU_23_4",
+    "BMP2",
+    "BTR70",
+    "T72"
+]
+
+
+log = logging.getLogger(__name__)
 
 def valid_path(path):
     p = os.path.expandvars(path)
@@ -20,11 +48,14 @@ def valid_path(path):
         raise ValueError("%s does not exist" % p)
     return p
 
+
 def get_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument('target', choices=['T72', 'BMP2', 'BTR70'], help="""target class""")
+    parser.add_argument('target', choices=TARGETS, help="""target class""")
     parser.add_argument('outdir', type=str, default='.',
         help="""results output directory""")
+    parser.add_argument('--num-samples', type=int, default=None,
+        help="""number of samples to train with (uses all samples if not specified)""")
     parser.add_argument('--rows', type=int, default=128, help="""image rows""")
     parser.add_argument('--cols', type=int, default=128, help="""image columns""")
     parser.add_argument('--channels', type=int, default=1, help="""image channels""")
@@ -42,54 +73,128 @@ def get_parser():
     parser.add_argument('--dis-json-model', dest='dis_json_model', type=valid_path,
         default=None,
         help="""path to JSON file describing the un-built discriminator model to use""")
+    parser.add_argument('--random-seed', dest='random_seed', type=int,
+        default=RANDOM_SEED,
+        help="""initialize random generator""")
+    parser.add_argument('--debug', action='store_true',
+        help="""Enable debugging""")
+    parser.add_argument('--prefix', type=str, default=None,
+        help="""String to prepend to output subdirectory name""")
     return parser
 
-def main(args):
-    optimizer = Adam(args.learning, 0.5)
-    img_shape = (args.rows, args.cols, args.channels)
 
-    # Build network
+def get_data(target_class, depression_angle=TRAIN_DEP_ANGLE):
+    client = pymongo.MongoClient()
+    if DATABASE not in client.database_names():
+        raise ValueError("no database %s" % DATABASE)
+    db = client[DATABASE]
+    if COLLECTION not in db.collection_names():
+        raise ValueError("no collection %s in %s" % (COLLECTION, DATABASE))
+    query = {'target_class':target_class, 'depression_angle':depression_angle}
+    cursor = db[COLLECTION].find(query)
+    if cursor.count() < 1:
+        raise RuntimeError("no results found for %s" % str(query))
+    return pd.DataFrame(list(cursor))
+
+
+def main(args):
+    # Make subdirectory for session
+    tstamp = datetime.datetime.utcnow()
+    subdir = tstamp.strftime("%Y%m%d%H%M%S")
+    subdir = '.'.join(('train', subdir))
+    if args.prefix:
+        subdir = '_'.join((args.prefix, subdir))
+    subdir = os.path.join(args.outdir, subdir)
+    os.mkdir(os.path.join(args.outdir, subdir), 0o755)
+    log.info("Results will be logged to %s" % subdir)
+
+    # Try to log git repo state if bmt was imported
+    if BMT_IMPORT:
+        if os.environ.get(JUP8_GITPATH) is None:
+            log.warn("Cannot log git repo state, %s is not defined" % s)
+        git_path = os.path.expandvars("$%s" % JUP8_GITPATH)
+        if not os.path.exists(git_path):
+            log.warn("Cannot log git repo state, %s does not exist" % git_path)
+        else:
+            log_repo_state(git_path, subdir)
+
+    # Save command line args
+    with open(os.path.join(subdir, 'config.yaml'), 'w') as f:
+        yaml.dump(vars(args), f, default_flow_style=False)
+
+    # Get generator and discriminator models
+    img_shape = (args.rows, args.cols, args.channels)
+    log.info("Getting generator")
     if args.gen_json_model is not None:
         with open(gen_json_file, 'r') as f:
             gen_unbuilt = model_from_json(f.read())
     else:
         gen_unbuilt = get_generator(args.latent_dim, args.channels)
-
+    log.info("Getting discriminator")
     if args.dis_json_model is not None:
         with open(dis_json_file, 'r') as f:
             dis_unbuilt = model_from_json(f.read())
     else:
         dis_unbuilt = get_discriminator(img_shape)
-    network = DCGAN(args.latent_dim, img_shape, gen_unbuilt, dis_unbuilt, optimizer, quiet=False)
-    network.set_outdir(args.outdir)
 
     # Save unbuilt models
+    log.info("Saving unbuilt generator model")
     model_g = gen_unbuilt.to_json()
-    with open(os.path.join(args.outdir, "gen_unbuilt_model.json"), 'w') as f:
+    with open(os.path.join(subdir, "gen_unbuilt_model.json"), 'w') as f:
         f.write(model_g)
+    log.info("Saving unbuilt discriminator model")
     model_d = dis_unbuilt.to_json()
-    with open(os.path.join(args.outdir, "dis_unbuilt_model.json"), 'w') as f:
+    with open(os.path.join(subdir, "dis_unbuilt_model.json"), 'w') as f:
         f.write(model_d)
 
-    # Train network
-    data = load_data(args.target, label='train')
+    # Build DCGAN
+    log.info("Building complete network")
+    optimizer = Adam(args.learning, 0.5)
+    network = DCGAN(args.latent_dim, img_shape, gen_unbuilt, dis_unbuilt, optimizer, quiet=False)
+    network.set_outdir(subdir)
+
+    # Get training data
+    log.info("Getting training samples for class %s" % args.target)
+    df = get_data(args.target, TRAIN_DEP_ANGLE)
+    if args.num_samples:
+        log.info("Limiting samples to a maximum of %d" % args.num_samples)
+        filenames = df.filename.sample(args.num_samples,
+                                       random_state=args.random_seed)
+    else:
+        filenames = df.filename
+    data = load_images(list(filenames), add_channels=False)
+    log.info("Loaded %d training sample images" % len(data))
+
+    # Train DCGAN
+    log.info("Begin training")
     try:
         network.train(data, args.epochs, args.batch)
     except KeyboardInterrupt:
-        print("Training stopped due to Keyboard Interrupt")
+        log.info("Training stopped due to Keyboard Interrupt")
     else:
-        print("Training complete")
+        log.info("Training complete")
 
     # Log results
-    with open(os.path.join(args.outdir, "results.log"), 'w') as f:
+    log.info("Writing training results log")
+    with open(os.path.join(subdir, "training_results.log"), 'w') as f:
         f.write(json.dumps(network.results))
 
     # Save weights
-    network.generator.save_weights(os.path.join(args.outdir, "generator_weights.h5"))
-    network.discriminator.save_weights(os.path.join(args.outdir, "discriminator_weights.h5"))
+    log.info("Saving generator and discriminator weights")
+    network.generator.save_weights(os.path.join(subdir, "generator_weights.h5"))
+    network.discriminator.save_weights(os.path.join(subdir, "discriminator_weights.h5"))
 
 if __name__ == '__main__':
     parser = get_parser()
     args = parser.parse_args()
-    main(args)
-    sys.exit(0)
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    try:
+        main(args)
+    except Exception as err:
+        log.error(err, exc_info=args.debug)
+        exit(1)
+    else:
+        exit(0)
