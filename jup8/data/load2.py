@@ -12,13 +12,14 @@ from imgproc.filters import center_crop
 IMG_HEIGHT = 128
 IMG_WIDTH = 128
 
-def load_images(filenames, crop_dim=None):
+def load_images(filenames, crop_dim=None, add_channels=True):
     """Returns an array of loaded images
 
     Args:
-        filenames:  list of image files
-        resize_dim: (rows, cols) image should be resized tp
-        crop_dim:   (rows, cols) to crop to (if provided)
+        filenames:    list of image files
+        resize_dim:   (rows, cols) image should be resized tp
+        crop_dim:     (rows, cols) to crop to (if provided)
+        add_channels: expand dims to add channel
     """
     images = []
     for f in filenames:
@@ -30,7 +31,8 @@ def load_images(filenames, crop_dim=None):
             out_rows, out_cols = crop_dim
             img = center_crop(img, out_rows, out_cols)
         # Add channel dimension
-        img = np.expand_dims(img, axis=2)
+        if add_channels:
+            img = np.expand_dims(img, axis=2)
         images.append(img)
     return np.array(images)
 
