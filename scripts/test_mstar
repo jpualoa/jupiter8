@@ -10,6 +10,7 @@ import datetime
 import pymongo
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
 from sklearn.metrics import confusion_matrix
 
 # Local imports
@@ -17,6 +18,7 @@ from aconv import get_aconv
 from small import get_model
 from data.load2 import load_images, get_test_generator
 from utils.argutils import valid_path
+from analysis.confusion import cmtable
 
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
@@ -76,7 +78,8 @@ def main(args):
     log.info("configuring labels")
     with open(os.path.join(args.outdir, LABEL_MAP), 'r') as f:
         label_map = json.load(f)
-    labels = list(df.target_class.apply(lambda x: label_map[x]))
+    labels = df.target_class.apply(lambda x: label_map[x])
+    np.savetxt(os.path.join(args.outdir, 'labels.log'), labels, fmt='%d', delimiter=',')
     log.info("loaded %d labels" % len(labels))
 
     # Get data generator
@@ -92,9 +95,12 @@ def main(args):
     # Evaluate
     log.info("predicting on samples")
     y = model.predict_generator(datagen, steps=datagen.n // args.batch + 1)
-    np.savetxt(os.path.join(args.outdir, 'predictions.log'), y, delimiter=',')
-    predictions = list(np.argmax(y, axis=1))
+    predictions = np.argmax(y, axis=1)
+    np.savetxt(os.path.join(args.outdir, 'predictions.log'), predictions, fmt='%d', delimiter=',')
     print(confusion_matrix(labels, predictions, labels=range(10)))
+
+    ax = cmtable(labels, predictions, label_map)
+    plt.show()
 
     return
 
