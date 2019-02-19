@@ -26,6 +26,7 @@ DATABASE = 'mstar2'
 COLLECTION = 'targets'
 RANDOM_SEED = 1234
 TRAIN_DEP_ANGLE = '17_DEG'
+EPOCHS = 2000
 TARGETS = [
     "BTR_60",
     "2S1",
@@ -50,7 +51,8 @@ def valid_path(path):
 
 
 def get_parser():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('target', choices=TARGETS, help="""target class""")
     parser.add_argument('outdir', type=str, default='.',
         help="""results output directory""")
@@ -61,7 +63,7 @@ def get_parser():
     parser.add_argument('--channels', type=int, default=1, help="""image channels""")
     parser.add_argument('--latent-dim', dest='latent_dim', type=int, default=100,
         help="""length of generator input noise vector""")
-    parser.add_argument('--epochs', type=int, default=4000,
+    parser.add_argument('--epochs', type=int, default=EPOCHS,
         help="""number of training epochs""")
     parser.add_argument('--batch-size', dest='batch', type=int, default=32,
         help="""batch size""")
@@ -104,6 +106,8 @@ def main(args):
     subdir = '.'.join(('train', subdir))
     if args.prefix:
         subdir = '_'.join((args.prefix, subdir))
+    else:
+        subdir = '_'.join((args.target, subdir))
     subdir = os.path.join(args.outdir, subdir)
     os.mkdir(os.path.join(args.outdir, subdir), 0o755)
     log.info("Results will be logged to %s" % subdir)
@@ -162,8 +166,12 @@ def main(args):
                                        random_state=args.random_seed)
     else:
         filenames = df.filename
-    data = load_images(list(filenames), add_channels=False)
+    data = load_images(list(filenames), crop_dim=(args.rows, args.cols), add_channels=False)
     log.info("Loaded %d training sample images" % len(data))
+
+    # Log training sample filenames
+    with open(os.path.join(subdir, 'training_samples.yaml'), 'w') as f:
+        yaml.dump({'filenames': list(filenames)}, f, default_flow_style=False)
 
     # Train DCGAN
     log.info("Begin training")
