@@ -17,9 +17,9 @@ from jup8.dcgan.dcgan import DCGAN, get_generator, get_discriminator
 from jup8.data.load2 import load_images
 try:
     from bmt.utilities.git import log_repo_state
-    BMT_IMPORT = True
+    BMT_IMPORTED = True
 except ImportError:
-    BMT_IMPORT = False
+    BMT_IMPORTED = False
 
 JUP8_GITPATH = 'JUP8_GITPATH'
 DATABASE = 'mstar2'
@@ -113,7 +113,7 @@ def main(args):
     log.info("Results will be logged to %s" % subdir)
 
     # Try to log git repo state if bmt was imported
-    if BMT_IMPORT:
+    if BMT_IMPORTED:
         if os.environ.get(JUP8_GITPATH) is None:
             log.warn("Cannot log git repo state, %s is not defined" % s)
         git_path = os.path.expandvars("$%s" % JUP8_GITPATH)
