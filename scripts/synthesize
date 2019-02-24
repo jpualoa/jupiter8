@@ -9,6 +9,7 @@ import logging
 import yaml
 
 # External dependencies
+import pymongo
 import numpy as np
 import matplotlib.pyplot as plt
 from keras.models import model_from_json
@@ -35,6 +36,9 @@ DIS_MODEL = "dis_unbuilt_model.json"
 DIS_WEIGHTS = "discriminator_weights.h5"
 CONFIG = "config.yaml"
 QUALITY = 0.9
+DATABASE = 'mstar2'
+COLLECTION = 'synthetics'
+TRAINING_SAMPLES = 'training_samples.yaml'
 
 log = logging.getLogger(__name__)
 
@@ -65,6 +69,17 @@ def get_parser():
         help="""Directory location of model weights and config files""")
     parser.add_argument('outdir', type=valid_path,
         help="""directory to write images to""")
+    #
+    # Database options
+    #
+    dbgroup = parser.add_argument_group('Database Options')
+    dbgroup.add_argument('--database', type=str, default=DATABASE,
+        help="""Database to write synthetics metadata to""")
+    dbgroup.add_argument('--collection', type=str, default=COLLECTION,
+        help="""Collection to write sythetics metadata to""")
+    #
+    # Miscellaneous options
+    #
     parser.add_argument('--quality', type=valid_quality, default=QUALITY,
         help="""Minimum required quality of synthetic (based on discriminator
                 prediction). Must be in range [0.0, 1.0)""")
@@ -82,49 +97,63 @@ def main(args):
     if args.target != config['target']:
         raise ValueError("Provided target (%s) does not match config target (%s)"
             % (args.target, config['target']))
-    shape = (config['cols'], config['rows'], 1)
-    log.debug("Synthetics shape %s" % str(shape))
+    # Confirm list of training samples for model is available
+    sources = os.path.join(args.modeldir, TRAINING_SAMPLES)
+    if not os.path.exists(sources):
+        raise RuntimeError("Could not locate training samples file for model (%s)" % sources)
+
+    #
+    # Setup database connection
+    #
+    client = pymongo.MongoClient()
+    if args.database not in client.database_names():
+        raise ValueError("Database %s does not exist" % args.database)
+    db = client[args.database]
+    if args.collection not in db.collection_names():
+        log.warn("Collection %s does not exist in database %s, creating new collection"
+            % (args.collection, args.database))
 
     #
     # Build generator
     #
-    modelfile = os.path.join(args.modeldir, GEN_MODEL)
-    log.info("Loading unbuilt generator model %s" % modelfile)
-    with open(modelfile, 'r') as f:
+    genmodelfile = os.path.join(args.modeldir, GEN_MODEL)
+    log.info("Loading unbuilt generator model %s" % genmodelfile)
+    with open(genmodelfile, 'r') as f:
         generator = model_from_json(f.read())
     log.info("Building generator model")
     generator = build_generator(generator, LATENT_DIM)
-    weightsfile = os.path.join(args.modeldir, GEN_WEIGHTS)
-    log.info("Loading generator model weights %s" % weightsfile)
-    generator.load_weights(weightsfile)
+    genweightsfile = os.path.join(args.modeldir, GEN_WEIGHTS)
+    log.info("Loading generator model weights %s" % genweightsfile)
+    generator.load_weights(genweightsfile)
 
     #
     # Build discriminator
     #
-    modelfile = os.path.join(args.modeldir, DIS_MODEL)
-    log.info("Loading unbuilt discriminator model %s" % modelfile)
-    with open(modelfile, 'r') as f:
+    dismodelfile = os.path.join(args.modeldir, DIS_MODEL)
+    log.info("Loading unbuilt discriminator model %s" % dismodelfile)
+    with open(dismodelfile, 'r') as f:
         discriminator = model_from_json(f.read())
     log.info("Building discriminator model")
+    shape = (config['cols'], config['rows'], 1)
     discriminator = build_discriminator(discriminator, shape)
-    weightsfile = os.path.join(args.modeldir, DIS_WEIGHTS)
-    log.info("Loading discriminator model weights %s" % weightsfile)
-    discriminator.load_weights(weightsfile)
+    disweightsfile = os.path.join(args.modeldir, DIS_WEIGHTS)
+    log.info("Loading discriminator model weights %s" % disweightsfile)
+    discriminator.load_weights(disweightsfile)
     
     #
     # Generate images
     #
     counter = 0
+    documents = []
     while counter < args.qty:
         noise = np.random.normal(0, 1, (1, LATENT_DIM))
         synth = generator.predict(noise)
-        log.debug("output image shape %s" % str(synth.shape))
 
-        # Check against discriminator
-        test = discriminator.predict(synth)
-        log.debug("test score: %f" % test)
-        if test < args.quality:
-            continue
+        ## Check against discriminator
+        #test = discriminator.predict(synth)
+        #log.debug("test score: %f" % test)
+        #if test < args.quality:
+        #    continue
 
         # Rescale image magnitudes to [0,1]
         synth = 0.5 * synth + 0.5
@@ -135,6 +164,28 @@ def main(args):
         log.debug("Saving image %s" % fname)
         plt.imsave(fname, synth[0,:,:,0], cmap='gray')
         counter +=1 # Increment counter
+
+        # Make database entry for image
+        d = {}
+        d['filename'] = fname
+        d['generator_model'] = genmodelfile
+        d['generator_weights'] = genweightsfile
+        d['discriminator_model'] = dismodelfile
+        d['discriminator_weights'] = disweightsfile
+        d['target_class'] = args.target
+        d['sources'] = sources
+        documents.append(d)
+    log.info("Generated %d synthetics for target class %s" % (counter, args.target))
+
+    #
+    # Write metadata to DB
+    #
+    num_inserted = 0
+    log.info("Inserting synthetics metadata into the database")
+    for doc in documents:
+        result = db[args.collection].insert(doc)
+        if result: num_inserted +=1
+    log.info("Inserted %d of %d documents into the database" % (num_inserted, len(documents)))
 
     return
         
