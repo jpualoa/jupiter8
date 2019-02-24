@@ -1,0 +1,106 @@
+#!/usr/bin/env python
+"""Synthesize images using trained GAN
+"""
+# Standard imports
+import os
+import sys
+import argparse
+import logging
+import yaml
+import subprocess
+
+# External dependencies
+import pymongo
+import numpy as np
+import matplotlib.pyplot as plt
+from keras.models import model_from_json
+
+# Local imports
+from jup8.dcgan.dcgan import build_generator
+
+LATENT_DIM = 100
+TARGETS = [
+    "BTR_60",
+    "2S1",
+    "BRDM_2",
+    "D7",
+    "T62",
+    "ZIL131",
+    "ZSU_23_4",
+    "BMP2",
+    "BTR70",
+    "T72"
+]
+CONFIG = "config.yaml"
+QUALITY = 0.9
+DATABASE = 'mstar2'
+COLLECTION = 'synthetics'
+COMMAND = os.path.expandvars('$JUP8_SCRIPTS/synthesize')
+
+log = logging.getLogger(__name__)
+
+
+def valid_path(path):
+    p = os.path.expandvars(path)
+    if not os.path.exists(p):
+        raise ValueError("%s does not exist" % p)
+    return p
+
+
+def get_parser():
+    """Returns command line parser
+    """
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('qty', type=int,
+        help="""Quantity of images to synthesize""")
+    parser.add_argument('modeldir', type=valid_path,
+        help="""Directory location of model weights and config files""")
+    parser.add_argument('outdir', type=valid_path,
+        help="""directory to write images to""")
+    #
+    # Database options
+    #
+    dbgroup = parser.add_argument_group('Database Options')
+    dbgroup.add_argument('--database', type=str, default=DATABASE,
+        help="""Database to write synthetics metadata to""")
+    dbgroup.add_argument('--collection', type=str, default=COLLECTION,
+        help="""Collection to write sythetics metadata to""")
+    #
+    # Miscellaneous options
+    #
+    parser.add_argument('--debug', action='store_true',
+        help="""Turn on debugging""")
+    return parser
+
+
+def main(args):
+    for target in TARGETS:
+        log.info("Synthesizing target class %s" % target)
+        modeldir = os.path.realpath(os.path.join(args.modeldir, target))
+        log.debug("Model files in %s" % modeldir)
+        arguments = [COMMAND, target, str(args.qty), modeldir, args.outdir, '--database',
+                     args.database, '--collection', args.collection]
+        if args.debug: arguments.append('--debug')
+        p = subprocess.Popen(arguments)
+        p.wait() # Wait for process to terminate before proceeding to next target
+    return
+
+
+if __name__ == '__main__':
+    # Parse command line
+    parser = get_parser()
+    args = parser.parse_args()
+    # Configure logging
+    if args.debug:
+       logging.basicConfig(level=logging.DEBUG)
+    else:
+       logging.basicConfig(level=logging.INFO)
+    # Main driver
+    try:
+        main(args)
+    except Exception as err:
+        log.error(err, exc_info=args.debug)
+        exit(1)
+    else:
+        exit(0)
