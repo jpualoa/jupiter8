@@ -33,7 +33,6 @@ TARGETS = [
 GEN_MODEL = "gen_unbuilt_model.json"
 GEN_WEIGHTS = "generator_weights.h5"
 CONFIG = "config.yaml"
-QUALITY = 0.9
 DATABASE = 'mstar2'
 COLLECTION = 'synthetics'
 TRAINING_SAMPLES = 'training_samples.yaml'
