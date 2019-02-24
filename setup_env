@@ -1,5 +1,6 @@
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 export JUP8_PYTHONPATH="$SCRIPT_DIR/jup8"
+export JUP8_SCRIPTS="$SCRIPT_DIR/scripts"
 export JUP8_GITPATH=${SCRIPT_DIR}
  
 # Setup Python
