@@ -1,7 +1,12 @@
 #!/usr/bin/env python
+"""Synthesize images using trained GAN
+"""
+# Standard imports
 import os
 import sys
 import argparse
+import logging
+import yaml
 
 # External dependencies
 import numpy as np
@@ -9,19 +14,30 @@ import matplotlib.pyplot as plt
 from keras.models import model_from_json
 
 # Local imports
-sys.path.append(os.path.expandvars("$JUPITER8_HOME/python"))
-from dcgan.dcgan import build_generator
+from jup8.dcgan.dcgan import build_generator, build_discriminator
 
 LATENT_DIM = 100
-T72_MODEL = "/projects/jupiter8/T72/gen_unbuilt_model.json"
-T72_WEIGHTS = "/projects/jupiter8/T72/generator_weights.h5"
-BMP2_MODEL = "/projects/jupiter8/BMP2/gen_unbuilt_model.json"
-BMP2_WEIGHTS = "/projects/jupiter8/BMP2/generator_weights.h5"
-BTR70_MODEL = "/projects/jupiter8/BTR70/gen_unbuilt_model.json"
-BTR70_WEIGHTS = "/projects/jupiter8/BTR70/generator_weights.h5"
-TARGETS = {'T72': (T72_MODEL, T72_WEIGHTS),
-           'BMP2': (BMP2_MODEL, BMP2_WEIGHTS),
-           'BTR70': (BTR70_MODEL, BTR70_WEIGHTS)}
+TARGETS = [
+    "BTR_60",
+    "2S1",
+    "BRDM_2",
+    "D7",
+    "T62",
+    "ZIL131",
+    "ZSU_23_4",
+    "BMP2",
+    "BTR70",
+    "T72"
+]
+GEN_MODEL = "gen_unbuilt_model.json"
+GEN_WEIGHTS = "generator_weights.h5"
+DIS_MODEL = "dis_unbuilt_model.json"
+DIS_WEIGHTS = "discriminator_weights.h5"
+CONFIG = "config.yaml"
+QUALITY = 0.9
+
+log = logging.getLogger(__name__)
+
 
 def valid_path(path):
     p = os.path.expandvars(path)
@@ -29,42 +45,114 @@ def valid_path(path):
         raise ValueError("%s does not exist" % p)
     return p
 
-def valid_target(target):
-    t = target.upper()
-    if t not in TARGETS.keys():
-        raise ValueError("%s is not a valid target" % t)
-    return t
+
+def valid_quality(x):
+    if (x < 0.0) or (x >= 1.0):
+        raise ValueError("Synth quality must be in range [0.0, 1.0]")
+    return x
+
 
 def get_parser():
-    parser = argparse.ArgumentParser()
-    parser.add_argument('target', type=valid_target, help="""target class""")
+    """Returns command line parser
+    """
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('target', choices=TARGETS,
+        help="""Target class to synthesize""")
     parser.add_argument('qty', type=int,
-        help="""quantity of images to synthesize""")
+        help="""Quantity of images to synthesize""")
+    parser.add_argument('modeldir', type=valid_path,
+        help="""Directory location of model weights and config files""")
     parser.add_argument('outdir', type=valid_path,
         help="""directory to write images to""")
+    parser.add_argument('--quality', type=valid_quality, default=QUALITY,
+        help="""Minimum required quality of synthetic (based on discriminator
+                prediction). Must be in range [0.0, 1.0)""")
+    parser.add_argument('--debug', action='store_true',
+        help="""Turn on debugging""")
     return parser
 
+
 def main(args):
-    model, weights = TARGETS[args.target]
-    with open(model, 'r') as f:
+    # Confirm correct model provided for target class
+    configfile = os.path.join(args.modeldir, CONFIG)
+    log.info("Parsing config file %s" % configfile)
+    with open(configfile, 'r') as f:
+        config = yaml.load(f)
+    if args.target != config['target']:
+        raise ValueError("Provided target (%s) does not match config target (%s)"
+            % (args.target, config['target']))
+    shape = (config['cols'], config['rows'], 1)
+    log.debug("Synthetics shape %s" % str(shape))
+
+    #
+    # Build generator
+    #
+    modelfile = os.path.join(args.modeldir, GEN_MODEL)
+    log.info("Loading unbuilt generator model %s" % modelfile)
+    with open(modelfile, 'r') as f:
         generator = model_from_json(f.read())
+    log.info("Building generator model")
     generator = build_generator(generator, LATENT_DIM)
-    generator.load_weights(weights)
+    weightsfile = os.path.join(args.modeldir, GEN_WEIGHTS)
+    log.info("Loading generator model weights %s" % weightsfile)
+    generator.load_weights(weightsfile)
 
-    noise = np.random.normal(0, 1, (args.qty, LATENT_DIM))
-    gen_imgs = generator.predict(noise)
+    #
+    # Build discriminator
+    #
+    modelfile = os.path.join(args.modeldir, DIS_MODEL)
+    log.info("Loading unbuilt discriminator model %s" % modelfile)
+    with open(modelfile, 'r') as f:
+        discriminator = model_from_json(f.read())
+    log.info("Building discriminator model")
+    discriminator = build_discriminator(discriminator, shape)
+    weightsfile = os.path.join(args.modeldir, DIS_WEIGHTS)
+    log.info("Loading discriminator model weights %s" % weightsfile)
+    discriminator.load_weights(weightsfile)
     
-    # Rescale images 0 - 1
-    gen_imgs = 0.5 * gen_imgs + 0.5
+    #
+    # Generate images
+    #
+    counter = 0
+    while counter < args.qty:
+        noise = np.random.normal(0, 1, (1, LATENT_DIM))
+        synth = generator.predict(noise)
+        log.debug("output image shape %s" % str(synth.shape))
 
-    for i in range(args.qty):
-        name = '%s_synth_%d.png' % (args.target, i)
+        # Check against discriminator
+        test = discriminator.predict(synth)
+        log.debug("test score: %f" % test)
+        if test < args.quality:
+            continue
+
+        # Rescale image magnitudes to [0,1]
+        synth = 0.5 * synth + 0.5
+
+        # Save image
+        name = '%s_synth_%d.png' % (args.target, counter)
         fname = os.path.join(args.outdir, name)
-        img = gen_imgs[i,:,:,0]
-        plt.imsave(fname, img, cmap='gray')
+        log.debug("Saving image %s" % fname)
+        plt.imsave(fname, synth[0,:,:,0], cmap='gray')
+        counter +=1 # Increment counter
+
+    return
+        
 
 if __name__ == '__main__':
+    # Parse command line
     parser = get_parser()
     args = parser.parse_args()
-    main(args)
-    sys.exit(0)
+    # Setup logging
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    # Main
+    try:
+        main(args)
+    except Exception as err:
+        log.error(err, exc_info=args.debug)
+        exit(1)
+    else:
+        exit(0)
