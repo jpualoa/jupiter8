@@ -99,8 +99,12 @@ def main(args):
     np.savetxt(os.path.join(args.outdir, 'predictions.log'), predictions, fmt='%d', delimiter=',')
     print(confusion_matrix(labels, predictions, labels=range(10)))
 
+    # Plot confusion matrix
     ax = cmtable(labels, predictions, label_map)
-    plt.show()
+    cmfile = os.path.join(args.outdir, 'confusion_matrix.png')
+    log.info("Saving confusion matrix plot to %s" % cmfile)
+    plt.savefig(cmfile)
+    #plt.show()
 
     return
 
