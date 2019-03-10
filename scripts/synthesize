@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 from keras.models import model_from_json
 
 # Local imports
-from jup8.dcgan.dcgan import build_generator
+from dcgan.dcgan import build_generator
 
 LATENT_DIM = 100
 TARGETS = [
@@ -31,8 +31,9 @@ TARGETS = [
     "T72"
 ]
 GEN_MODEL = "gen_unbuilt_model.json"
-GEN_WEIGHTS = "generator_weights.h5"
+GEN_WEIGHTS = "final_generator_weights.h5"
 CONFIG = "config.yaml"
+TRAINING_SAMPLES = "training_samples.yaml"
 DATABASE = 'mstar2'
 COLLECTION = 'synthetics'
 TRAINING_SAMPLES = 'training_samples.yaml'
@@ -73,6 +74,8 @@ def get_parser():
     #
     parser.add_argument('--debug', action='store_true',
         help="""Turn on debugging""")
+    parser.add_argument('--prefix', type=str, default=None,
+        help="""Prefix to add to synthesize image filenames""")
     return parser
 
 
@@ -85,6 +88,14 @@ def main(args):
     if args.target != config['target']:
         raise ValueError("Provided target (%s) does not match config target (%s)"
             % (args.target, config['target']))
+    if not config['num_samples']:
+        all_samples_used = True
+    else:
+        all_samples_used = False
+    # Get the number of samples the model was trained on
+    with open(os.path.join(args.modeldir, TRAINING_SAMPLES), 'r') as f:
+        training_samples = yaml.load(f)
+    num_samples_trained_with = len(training_samples['filenames'])
     # Confirm list of training samples for model is available
     sources = os.path.join(args.modeldir, TRAINING_SAMPLES)
     if not os.path.exists(sources):
@@ -117,9 +128,8 @@ def main(args):
     #
     # Generate images
     #
-    counter = 0
     documents = []
-    while counter < args.qty:
+    for i in xrange(args.qty):
         noise = np.random.normal(0, 1, (1, LATENT_DIM))
         synth = generator.predict(noise)
 
@@ -127,11 +137,11 @@ def main(args):
         synth = 0.5 * synth + 0.5
 
         # Save image
-        name = '%s_synth_%d.png' % (args.target, counter)
+        name = '%s_synth_%d.png' % (args.target, i)
+        if args.prefix: name = '_'.join((args.prefix, name))
         fname = os.path.join(args.outdir, name)
         log.debug("Saving image %s" % fname)
         plt.imsave(fname, synth[0,:,:,0], cmap='gray')
-        counter +=1 # Increment counter
 
         # Make database entry for image
         d = {}
@@ -140,8 +150,10 @@ def main(args):
         d['generator_weights'] = genweightsfile
         d['target_class'] = args.target
         d['sources'] = sources
+        d['num_samples_trained_with'] = num_samples_trained_with
+        d['all_training_samples_used'] = all_samples_used
         documents.append(d)
-    log.info("Generated %d synthetics for target class %s" % (counter, args.target))
+    log.info("Generated %d synthetics for target class %s" % (args.qty, args.target))
 
     #
     # Write metadata to DB
@@ -166,10 +178,5 @@ if __name__ == '__main__':
     else:
         logging.basicConfig(level=logging.INFO)
     # Main
-    try:
-        main(args)
-    except Exception as err:
-        log.error(err, exc_info=args.debug)
-        exit(1)
-    else:
-        exit(0)
+    main(args)
+    exit(0)

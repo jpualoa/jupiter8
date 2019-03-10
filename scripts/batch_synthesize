@@ -1,0 +1,140 @@
+#!/usr/bin/env python
+"""Synthesize images using trained GAN
+"""
+# Standard imports
+import os
+import sys
+import argparse
+import logging
+import yaml
+import subprocess
+import imp
+
+# External dependencies
+import pymongo
+import numpy as np
+import matplotlib.pyplot as plt
+from keras.models import model_from_json
+
+# Local imports
+synth = imp.load_source('synthesize', os.path.expandvars('$JUP8_SCRIPTS/synthesize'))
+
+MODEL_CONFIG = "config.yaml"
+DATABASE = 'mstar2'
+COLLECTION = 'synthetics'
+
+log = logging.getLogger(__name__)
+
+
+def valid_path(path):
+    p = os.path.expandvars(path)
+    if not os.path.exists(p):
+        raise ValueError("%s does not exist" % p)
+    return p
+
+
+def get_parser():
+    """Returns command line parser
+    """
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('configfn', type=valid_path,
+        help="""Config parameters for batch run""")
+    parser.add_argument('outdir', type=valid_path,
+        help="""directory to write images to""")
+    #
+    # Database options
+    #
+    dbgroup = parser.add_argument_group('Database Options')
+    dbgroup.add_argument('--database', type=str, default=DATABASE,
+        help="""Database to write synthetics metadata to""")
+    dbgroup.add_argument('--collection', type=str, default=COLLECTION,
+        help="""Collection to write sythetics metadata to""")
+    #
+    # Miscellaneous options
+    #
+    parser.add_argument('--debug', action='store_true',
+        help="""Turn on debugging""")
+    return parser
+
+
+def main(args):
+    #
+    # Parse batch config file
+    #
+    log.info("Parsing config file %s" % args.configfn)
+    with open(args.configfn, 'r') as f:
+        config = yaml.load(f)
+    num_synths = config['num_synths']
+    log.debug("Num synths to generate: %d" % num_synths)
+    parent_dir = os.path.expandvars(config['parent_dir'])
+    log.debug("Parent dir for models: %s" % parent_dir)
+    #
+    # Generate synthetics for each target class
+    #
+    log.info("Begin batch GAN synthesis")
+    targets_synthesized = []
+    for target in config['targets']:
+        #
+        # Get model directory for target
+        #
+        dirnames = filter(lambda x: x.startswith(target), os.listdir(parent_dir))
+        if len(dirnames) < 1:
+            raise RuntimeError("No directory found for target %s" % target)
+        if len(dirnames) < 1:
+            raise RuntimeError("Multiple directories found for target %s" % target)
+        dirpath = os.path.join(parent_dir, dirnames[0])
+        if not os.path.exists(dirpath):
+            raise RuntimeError("Model directory %s does not exist" % dirpath)
+        log.debug("Using model in %s" % dirpath)
+        #
+        # Parse local model config file and validate target matches model
+        #
+        with open(os.path.join(dirpath, MODEL_CONFIG), 'r') as f:
+            model_config = yaml.load(f)
+        if target != model_config['target']:
+            raise RuntimeError("Model in %s not trained for target %s"
+                % (dirpath, target))
+        if model_config['num_samples']: # number of samples used to train the model
+            prefix = 'samples%d' % model_config['num_samples']
+        else:
+            prefix = 'samplesAll'
+        #
+        # Get argument parser for synthesize script and update
+        #
+        log.debug("Building args sequence for target %s" % target)
+        parser = synth.get_parser()
+        print([target, num_synths, dirpath, args.outdir])
+        cmd_args = parser.parse_args(args=[target, str(num_synths), dirpath, args.outdir])
+        cmd_args.prefix = prefix
+        cmd_args.database = args.database
+        cmd_args.collection = args.collection
+        cmd_args.debug = args.debug
+        #
+        # Synthesize
+        #
+        synth.main(cmd_args)
+        targets_synthesized.append(target)
+    skipped = set(targets_synthesized).difference(set(config['targets']))
+    if skipped:
+        log.warn("Dis not synthesize targets: %s" % str(list(skipped)))
+    log.info("Synthesized %d of %d targets" % (len(targets_synthesized), len(config['targets'])))
+
+    return
+
+
+if __name__ == '__main__':
+    # Parse command line
+    parser = get_parser()
+    args = parser.parse_args()
+    # Configure logging
+    if args.debug:
+       logging.basicConfig(level=logging.DEBUG)
+    else:
+       logging.basicConfig(level=logging.INFO)
+    # Main driver
+    try:
+        main(args)
+    except KeyboardInterrupt:
+        log.info("Exiting early due to keyboard interrupt")
+    exit(0)

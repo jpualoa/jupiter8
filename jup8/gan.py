@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 log = logging.getLogger(__name__)
 
 SAMPLES_DIRNAME = 'samples'
+WEIGHTS_DIRNAME = 'weights'
 
 class GAN(object):
     def __init__(self, generator, discriminator, optimizer, latent_dim,
@@ -82,6 +83,16 @@ class GAN(object):
         fig.savefig(fname)
         plt.close()
 
+    def _save_weights(self, epoch):
+        weights_dir = os.path.join(self._outdir, WEIGHTS_DIRNAME)
+        if not os.path.exists(weights_dir):
+            os.mkdir(weights_dir, 0o755)
+        gen_weightsfn = os.path.join(weights_dir, 'gen_weights_%2d.h5' % epoch)
+        self.generator.save_weights(gen_weightsfn)
+        dis_weightsfn = os.path.join(weights_dir, 'dis_weights_%2d.h5' % epoch)
+        self.discriminator.save_weights(dis_weightsfn)
+        return
+
     # ==========================================================================
     # Public Interface
     # ==========================================================================
@@ -149,6 +160,8 @@ class GAN(object):
             # Log progress
             self._log_progress(epoch, d_loss, g_loss)
 
-            # Save generated samples
+            # Save generated samples and weights
             if save_interval > 0:
-                if epoch % save_interval == 0: self._save_samples(epoch)
+                if epoch % save_interval == 0:
+                    self._save_samples(epoch)
+                    self._save_weights(epoch)

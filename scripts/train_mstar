@@ -6,6 +6,7 @@ import logging
 import json
 import datetime
 import yaml
+import shutil
 
 # External dependencies
 import pymongo
@@ -47,61 +48,12 @@ def get_parser():
         description="""Train a Deep Convolutional model to classify the MSTAR
                        dataset""",
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    parser.add_argument('outdir', type=valid_path,
-        help="""Output directory for test/training results""")
-
-    parser.add_argument('--weights', type=valid_path, default=None,
-        help="""Weights file to load""")
-
-    parser.add_argument('--save-period', dest='save_period', type=int,
-        default=DEFAULT_SAVE_PERIOD,
-        help="""How often (per epoch) to save model state""")
-
-    parser.add_argument('--epochs', type=int,
-        default=DEFAULT_EPOCHS,
-        help="""number of training epochs""")
-
-    parser.add_argument('--verbosity', type=int,
-        default=DEFAULT_VERBOSITY,
-        help="""verbosity mode 0 = silent, 1 = progress bar, 2 = one line per epoch""")
-
-    parser.add_argument('--batch', type=int,
-        default=DEFAULT_BATCH_SIZE,
-        help="""training batch size""")
-
-    parser.add_argument('--learn-rate', type=float, dest='learn_rate',
-        default=DEFAULT_LEARN_RATE,
-        help="""Learning rate""")
-
-    parser.add_argument('--split', type=float,
-        default=DEFAULT_VALIDATION_SPLIT,
-        help="""percentage of validation data to split off of training data""")
-
-    parser.add_argument('--use-synths', action='store_true', dest='use_synths',
-        help="""train with synthetic images""")
-
-    parser.add_argument('--prefix', type=str, default=None,
-        help="""Prefix to add to created session output subdirectory""")
-
-    parser.add_argument('--max-samples', type=int, dest='max_samples',
-        default=None,
-        help="""Maximum number of samples to use PER CLASS""")
-
-    parser.add_argument('--max-synth-samples', type=int, dest='max_synth_samples',
-        default=None,
-        help="""Maximum number of synthetic samples to use PER CLASS""")
-    #
-    # Database options
-    #
-    dbgroup = parser.add_argument_group('Database Options')
-    dbgroup.add_argument('--database', type=str, default=DATABASE,
-        help="""Database to pull training data from""")
-    dbgroup.add_argument('--collection', type=str, default=COLLECTION,
-        help="""Collection to pull real training samples from""")
-    dbgroup.add_argument('--synth-collection', dest='synth_collection', type=str,
-        default=SYNTHETICS,
-        help="""Collection to pull sythetic training samples from""")
+    parser.add_argument('configfn', type=valid_path,
+        help="""Path to train_mstar config file to use""")
+    parser.add_argument('--debug', action='store_true',
+        help="""Enable debug statements""")
     return parser
+
 
 def get_callbacks(outdir, learn_rate=0.01, verbosity=0, save_period=5):
     checkpoint = ModelCheckpoint(filepath=os.path.join(outdir, CHECKPOINT_FILEPATH),
@@ -116,54 +68,101 @@ def get_callbacks(outdir, learn_rate=0.01, verbosity=0, save_period=5):
 
 
 def main(args):
+    #
+    # Parse config
+    #
+    with open(args.configfn, 'r') as f:
+        config = yaml.load(f)
+    prefix = config['setup']['prefix']
+    outdir = config['setup']['outdir']
+    if not os.path.exists(outdir):
+        raise ValueError("Output directory %s does not exist" % outdir)
+
     # Make subdirectory for session
     tstamp = datetime.datetime.utcnow()
     subdir = tstamp.strftime("%Y%m%d%H%M%S")
     subdir = '.'.join(('train', subdir))
-    if args.prefix:
-        subdir = '_'.join((args.prefix, subdir))
-    subdir = os.path.join(args.outdir, subdir)
-    os.mkdir(os.path.join(args.outdir, subdir), 0o755)
+    if prefix:
+        subdir = '_'.join((prefix, subdir))
+    subdir = os.path.join(outdir, subdir)
+    os.mkdir(os.path.join(outdir, subdir), 0o755)
     log.info("Results will be logged to %s" % subdir)
 
-    # Save command line args
-    configfile = os.path.join(subdir, 'config.yaml')
-    log.info("Saving config to %s" % configfile)
-    with open(configfile, 'w') as f:
-        yaml.dump(vars(args), f, default_flow_style=False)
-    
+    # Save copy of config file in subdirectory
+    shutil.copy(args.configfn, os.path.join(subdir, os.path.basename(args.configfn)))
+   
+    # 
     # Setup DB connection
+    #
     client = pymongo.MongoClient()
-    db = client[args.database]
-
-    #
-    # Construct dataframe of real training samples
-    #
-    query = {'depression_angle': DEP_ANGLE_TRAIN}
-    cursor = db[args.collection].find(query)
-    df = pd.DataFrame(list(cursor))
-    if args.max_samples: # Limit smaples per class
-        log.info("limiting max real samples per class to %d" % args.max_samples)
-        subsets = []
-        for name, group in df.groupby('target_class'):
-            subsets.append(group.sample(args.max_samples))
-        df = pd.concat(subsets)
+    db = client[config['db']['database']]
+    real_collection = db[config['db']['real_collection']]
+    synth_collection = db[config['db']['synth_collection']]
 
     #
     # Construct dataframe of synthetic training samples
     #
-    if args.use_synths:
+    synth_sources = [] # Container for real samples used to create synthetics
+    if config['synthetics']['use_synthetics']:
         log.info("Loading synthetic samples")
-        cursor = db[args.synth_collection].find() # pull all synths
-        synth_df = pd.DataFrame(list(cursor))
-        if args.max_synth_samples: # Limit smaples per class
-            log.info("limiting max synth samples per class to %d" % args.max_synth_samples)
+        cursor = synth_collection.find() # pull all synths
+        df = pd.DataFrame(list(cursor))
+        #
+        # Filter synthetics based on number of samples the GAN was trained with
+        #
+        num_trained = config['synthetics']['num_samples_trained_with']
+        log.info("Pulling synthetics for num_samples_trained_with = %d" % num_trained)
+        if not num_trained:
+            synth_df = df[df.all_training_samples_used == True]
+        else:
+            log.info("Limiting synthetics to those trained with %d samples" % num_trained)
+            if num_trained not in df.num_samples_trained_with.unique():
+                raise ValueError("%d not a valid value for num_samples_trained_with"
+                    % num_trained)
+            synth_df = df[df.num_samples_trained_with == num_trained]
+        log.debug("Num synthetic samples: %d" % len(synth_df))
+        #
+        # Filter number of synthetics used
+        #
+        num_synths = config['synthetics']['num_synth_samples']
+        if num_synths:
+            log.info("Limiting synth samples per class to %d" % num_synths)
             subsets = []
-            for name, group in df.groupby('target_class'):
-                subsets.append(group.sample(args.max_synth_samples))
+            for name, group in synth_df.groupby('target_class'):
+                subsets.append(group.sample(num_synths))
             synth_df = pd.concat(subsets)
-        log.debug("Concatenating real and synthetic samples")
-        df = pd.concat([df, synth_df], sort=False)
+            log.debug("Num synthetic samples: %d" % len(synth_df))
+        #
+        # Get list of all real samples used to generate the synthetics
+        #
+        print(synth_df.sources.unique())
+        for sourcefn in synth_df.sources.unique():
+            with open(sourcefn, 'r') as f:
+                s = yaml.load(f)
+            synth_sources.extend(s['filenames'])
+        log.debug("Total number of synthetic sources %d" % len(synth_sources))
+    #
+    # Construct dataframe of real training samples
+    #
+    log.info("Loading real samples")
+    query = {'depression_angle': DEP_ANGLE_TRAIN}
+    cursor = real_collection.find(query)
+    df = pd.DataFrame(list(cursor))
+    log.debug("Num real samples: %d" % len(df))
+    if synth_sources:
+        log.info("Excluding real samples used in synthetics generation")
+        df = df[df.filename.apply(lambda x: x not in synth_sources)]
+        log.debug("Num real samples: %d" % len(df))
+    max_samples = config['training']['max_samples']
+    if max_samples: # Limit smaples per class
+        log.info("Limiting max real samples per class to %d" % max_samples)
+        subsets = []
+        for name, group in df.groupby('target_class'):
+            subsets.append(group.sample(max_samples))
+        df = pd.concat(subsets)
+    # Combine data frames
+    if config['synthetics']['use_synthetics']:
+        df = pd.concat([df, synth_df])
 
     # Write dataframe to CSV file
     df.to_csv(os.path.join(subdir, CSV_FILE))
@@ -185,11 +184,12 @@ def main(args):
         json.dump(label_map, f)
 
     # Get generators
-    traingen, valgen = get_training_generator(images, labels, args.batch, args.split)
+    traingen, valgen = get_training_generator(images,
+                                              labels,
+                                              config['training']['batch_size'],
+                                              config['training']['split'])
 
     # Setup model
-    # A-ConvNets model
-    #model = get_aconv(input_shape=(88, 88, 1))
     model = get_model(input_shape=(128,128,1))
     model.summary()
     #opt = SGD(lr=0.001, momentum=0.9)
@@ -199,13 +199,14 @@ def main(args):
         metrics=['categorical_accuracy', lr_metric])
 
     # Train model
-    cbacks = get_callbacks(subdir, learn_rate=args.learn_rate,
-        verbosity=args.verbosity, save_period=args.save_period)
+    cbacks = get_callbacks(subdir, learn_rate=config['training']['learn_rate'],
+        verbosity=config['training']['verbosity'],
+        save_period=config['training']['save_period'])
     try:
         history = model.fit_generator(traingen,
-                                  epochs=args.epochs,
+                                  epochs=config['training']['epochs'],
                                   steps_per_epoch=traingen.n // traingen.batch_size,
-                                  verbose=args.verbosity,
+                                  verbose=config['training']['verbosity'],
                                   validation_data=valgen,
                                   validation_steps=valgen.n // valgen.batch_size,
                                   callbacks=cbacks)
@@ -220,16 +221,12 @@ def main(args):
     return
 
 if __name__ == '__main__':
-    import traceback
-    logging.basicConfig(level=logging.INFO)
     parser = get_parser()
     args = parser.parse_args()
-    try:
-        main(args)
-    except Exception as err:
-        print(err)
-        print(traceback.format_exc())
-        exit(1)
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
     else:
-        exit(0)
+        logging.basicConfig(level=logging.INFO)
+    main(args)
+    exit(0)
         

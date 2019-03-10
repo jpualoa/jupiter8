@@ -5,3 +5,7 @@ export JUP8_GITPATH=${SCRIPT_DIR}
  
 # Setup Python
 export PYTHONPATH=${PYTHONPATH}:${JUP8_PYTHONPATH}
+
+# Setup matplotlib
+export MPLBACKEND='Qt4Agg'
+

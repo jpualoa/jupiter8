@@ -13,8 +13,8 @@ from keras.optimizers import Adam
 from keras.models import model_from_json
 
 # Local imports
-from jup8.dcgan.dcgan import DCGAN, get_generator, get_discriminator
-from jup8.data.load2 import load_images
+from dcgan.dcgan import DCGAN, get_generator, get_discriminator
+from data.load2 import load_images
 try:
     from bmt.utilities.git import log_repo_state
     BMT_IMPORTED = True
@@ -109,7 +109,7 @@ def main(args):
     else:
         subdir = '_'.join((args.target, subdir))
     subdir = os.path.join(args.outdir, subdir)
-    os.mkdir(os.path.join(args.outdir, subdir), 0o755)
+    os.mkdir(subdir, 0o755)
     log.info("Results will be logged to %s" % subdir)
 
     # Try to log git repo state if bmt was imported
@@ -189,8 +189,8 @@ def main(args):
 
     # Save weights
     log.info("Saving generator and discriminator weights")
-    network.generator.save_weights(os.path.join(subdir, "generator_weights.h5"))
-    network.discriminator.save_weights(os.path.join(subdir, "discriminator_weights.h5"))
+    network.generator.save_weights(os.path.join(subdir, "final_generator_weights.h5"))
+    network.discriminator.save_weights(os.path.join(subdir, "final_discriminator_weights.h5"))
 
 if __name__ == '__main__':
     parser = get_parser()
@@ -199,10 +199,5 @@ if __name__ == '__main__':
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
-    try:
-        main(args)
-    except Exception as err:
-        log.error(err, exc_info=args.debug)
-        exit(1)
-    else:
-        exit(0)
+    main(args)
+    exit(0)
