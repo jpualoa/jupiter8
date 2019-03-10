@@ -1,0 +1,117 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import logging
+import subprocess
+import argparse
+import yaml
+import imp
+
+# External dependencies
+
+
+# Local imports
+train_dcgan = imp.load_source('train_dcgan', os.path.expandvars("$JUP8_SCRIPTS/train_dcgan"))
+
+
+log = logging.getLogger(__name__)
+
+
+def valid_path(path):
+    p = os.path.expandvars(path)
+    if not os.path.exists(p):
+        raise ValueError("%s does not exist" % p)
+    return p
+
+
+def get_parser():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('configfn', type=valid_path,
+        help="""config file specifying batch training parameters""")
+    parser.add_argument('outdir', type=str,
+        help="""results output directory""")
+    parser.add_argument('--debug', action='store_true',
+        help="""Enable debugging""")
+    return parser
+
+def main(args):
+    log.debug("Parsing config %s" % args.configfn)
+    with open(args.configfn, 'r') as f:
+        config = yaml.load(f)
+
+    log.info("Begin batch DCGAN training")
+    for target in config['targets']:
+        log.debug("Building arg sequence for target %s" % target)
+        #
+        # Get argument parser for train_dcgan and update with config specs
+        #
+        parser = train_dcgan.get_parser()
+        cmd_args = parser.parse_args(args=[target, args.outdir])
+        cmd_args.rows = config['image']['rows']
+        cmd_args.cols = config['image']['cols']
+        cmd_args.channels = config['image']['channels']
+        cmd_args.latent_dim = config['model']['latent_dim']
+        cmd_args.epochs = config['training']['epochs']
+        cmd_args.num_samples = config['training']['num_samples']
+        cmd_args.batch = config['training']['batch_size']
+        cmd_args.learning = config['training']['learn_rate']
+        cmd_args.prefix = target
+        cmd_args.debug = args.debug
+        #
+        # Train DCGAN
+        #
+        log.info("Begin DCGAN training for target %s" % target)
+        train_dcgan.main(cmd_args)
+        log.info("End DCGAN training for target %s" % target)
+
+    log.info("End batch DCGAN training")
+    return
+
+
+if __name__ == '__main__':
+    # Parse command line
+    parser = get_parser()
+    args = parser.parse_args()
+    # Configure logging
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    # Main driver
+    try:
+        main(args)
+    except KeyboardInterrupt:
+        log.warn("Keyboard interrupt detected, exiting early")
+    exit(0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+        

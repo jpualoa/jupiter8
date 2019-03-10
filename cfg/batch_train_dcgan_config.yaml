@@ -1,0 +1,31 @@
+# Example config for running batch_train_dcgan
+
+targets:
+    - BTR_60
+    - 2S1
+    - BRDM_2 
+    - D7
+    - T62
+    - ZIL131
+    - ZSU_23_4
+    - BMP2
+    - BTR70
+    - T72
+
+image:
+    rows: 128
+    cols: 128
+    channels: 1
+
+model:
+    name: dcgan
+    latent_dim: 100
+
+training:
+    num_samples: null
+    epochs: 2000
+    batch_size: 32
+    learn_rate: 0.0002
+
+setup:
+    random_seed: 1234

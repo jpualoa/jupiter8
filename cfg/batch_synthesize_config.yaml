@@ -1,0 +1,20 @@
+# Example config for running batch_synthesize
+
+parent_dir: '.' # Directory containing subdirectories of all trained models
+
+targets: # Mapping of target class to subdirectory of trained model
+    - 2S1
+    - BMP2
+    - BRDM_2
+    - BTR_60
+    - BTR70
+    - D7
+    - T62 
+    - T72
+    - ZIL131
+    - ZSU_23_4
+
+num_synths: 1000
+
+setup:
+    random_seed: 1234

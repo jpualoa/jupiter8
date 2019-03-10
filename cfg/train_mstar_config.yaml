@@ -1,0 +1,49 @@
+# Example config for running train_mstar
+
+targets:
+    - BTR_60
+    - 2S1
+    - BRDM_2 
+    - D7
+    - T62
+    - ZIL131
+    - ZSU_23_4
+    - BMP2
+    - BTR70
+    - T72
+
+image:
+    rows: 128
+    cols: 128
+    channels: 1
+
+model:
+    name: dcgan
+    latent_dim: 100
+
+training:
+    # Maximum number of real samples to train with (no limit if null)
+    max_samples: null
+    epochs: 100
+    batch_size: 32
+    learn_rate: 0.001
+    save_period: 5
+    split: 0.1
+    verbosity: 1
+
+synthetics:
+    use_synthetics: true
+    # Number of synthetic samples to use in the training set
+    num_synth_samples: 1000
+    # The number of real samples the GAN that produced the synthetics was trained with
+    num_samples_trained_with: 100
+
+db:
+    database: mstar2
+    real_collection: targets
+    synth_collection: synthetics
+
+setup:
+    outdir: '.'
+    prefix: null
+    random_seed: 1234
