@@ -1,4 +1,5 @@
 # Standard imports
+import logging
 
 # External dependencies
 import numpy as np
@@ -11,6 +12,8 @@ from imgproc.filters import center_crop
 
 IMG_HEIGHT = 128
 IMG_WIDTH = 128
+
+log = logging.getLogger(__name__)
 
 def load_images(filenames, crop_dim=None, add_channels=True):
     """Returns an array of loaded images
@@ -36,7 +39,7 @@ def load_images(filenames, crop_dim=None, add_channels=True):
         images.append(img)
     return np.array(images)
 
-def get_training_generator(images, labels, batch_size=32, test_size=0.1):
+def get_training_generator(images, labels, batch_size=32, test_size=0.1, repeat_samples=0):
     """Returns training and validator generators
 
     Args:
@@ -44,11 +47,11 @@ def get_training_generator(images, labels, batch_size=32, test_size=0.1):
         labels: list of encoded (int) labels for images
     """
     gen_train = image.ImageDataGenerator(rescale=1./255,
-                                         #rotation_range=20,
-                                         #width_shift_range=0.2,
-                                         #height_shift_range=0.2,
-                                         #horizontal_flip=True,
-                                         data_format='channels_last')
+                                     rotation_range=20,
+                                     width_shift_range=0.2,
+                                     height_shift_range=0.2,
+                                     horizontal_flip=True,
+                                     data_format='channels_last')
     
     gen_val = image.ImageDataGenerator(rescale=1./255,
                                        data_format='channels_last')
@@ -56,6 +59,15 @@ def get_training_generator(images, labels, batch_size=32, test_size=0.1):
     # Partition training and validation data
     x_train, x_val, y_train, y_val = train_test_split(images, labels,
         test_size=test_size)
+
+    # Repeat training samples
+    if repeat_samples:
+        log.debug("Repeating training samples %d times" % repeat_samples)
+        x_train = np.repeat(x_train, repeat_samples, axis=0)
+        y_train = np.repeat(y_train, repeat_samples, axis=0)
+
+    log.debug("x_train: %s, y_train: %s" % (str(x_train.shape),str(y_train.shape)))
+    log.debug("x_val: %s, y_val: %s" % (str(x_val.shape),str(y_val.shape)))
 
     # Get data generators
     train = gen_train.flow(x_train, y_train, batch_size=batch_size)
