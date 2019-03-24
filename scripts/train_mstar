@@ -10,6 +10,7 @@ import shutil
 
 # External dependencies
 import pymongo
+import numpy as np
 import pandas as pd
 from sklearn.preprocessing import LabelEncoder, OneHotEncoder
 from sklearn.model_selection import train_test_split
@@ -25,6 +26,7 @@ from utils.argutils import valid_path
 from aconv import get_aconv
 from small import get_model
 from training.learning import step_decay, get_lr_metric
+from utils.logging_config import configure as configure_logging
 
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
@@ -39,6 +41,8 @@ DEFAULT_VALIDATION_SPLIT = 0.1
 DEFAULT_LEARN_RATE = 0.001
 CHECKPOINT_FILEPATH = "weights.{epoch:02d}.h5"
 TRAINING_LOG = 'training.log'
+LOG_FILE = 'log.log'
+LOG_FORMAT = '%(asctime)s [%(levelname)7s] |%(module)s: %(lineno)03d| %(message)s'
 CSV_FILE = 'train_samples.csv'
 
 log = logging.getLogger(__name__)
@@ -50,6 +54,10 @@ def get_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('configfn', type=valid_path,
         help="""Path to train_mstar config file to use""")
+    parser.add_argument('--outdir', type=valid_path, default=None,
+        help="""Output directory to write results to""")
+    parser.add_argument('--prefix', type=str, default=None,
+        help="""Name to prepend to output sub-directory""")
     parser.add_argument('--debug', action='store_true',
         help="""Enable debug statements""")
     return parser
@@ -67,30 +75,13 @@ def get_callbacks(outdir, learn_rate=0.01, verbosity=0, save_period=5):
     return [checkpoint, csv_logger]
 
 
-def main(args):
-    #
-    # Parse config
-    #
-    with open(args.configfn, 'r') as f:
-        config = yaml.load(f)
-    prefix = config['setup']['prefix']
-    outdir = config['setup']['outdir']
-    if not os.path.exists(outdir):
-        raise ValueError("Output directory %s does not exist" % outdir)
-
-    # Make subdirectory for session
-    tstamp = datetime.datetime.utcnow()
-    subdir = tstamp.strftime("%Y%m%d%H%M%S")
-    subdir = '.'.join(('train', subdir))
-    if prefix:
-        subdir = '_'.join((prefix, subdir))
-    subdir = os.path.join(outdir, subdir)
-    os.mkdir(os.path.join(outdir, subdir), 0o755)
-    log.info("Results will be logged to %s" % subdir)
-
-    # Save copy of config file in subdirectory
-    shutil.copy(args.configfn, os.path.join(subdir, os.path.basename(args.configfn)))
-   
+def main(config):
+    repeat = config['training']['repeat_real_samples'] # number of times to replicate real samples
+    use_synths = config['synthetics']['use_synthetics']
+    if bool(repeat) & use_synths:
+        log.error("Cannot repeat real samples and use synthetics")
+        return
+    subdir = config['setup']['subdir']
     # 
     # Setup DB connection
     #
@@ -98,7 +89,6 @@ def main(args):
     db = client[config['db']['database']]
     real_collection = db[config['db']['real_collection']]
     synth_collection = db[config['db']['synth_collection']]
-
     #
     # Construct dataframe of synthetic training samples
     #
@@ -160,36 +150,29 @@ def main(args):
         for name, group in df.groupby('target_class'):
             subsets.append(group.sample(max_samples))
         df = pd.concat(subsets)
-    # Combine data frames
+    # Combine real and synthetics
     if config['synthetics']['use_synthetics']:
         df = pd.concat([df, synth_df])
-
     # Write dataframe to CSV file
     df.to_csv(os.path.join(subdir, CSV_FILE))
-
     # Load images
     images = load_images(list(df.filename), crop_dim=(128,128))
-
+    #
     # Encode labels - for categogorical crossentropy the labels must be
     # one hot encoded
+    #
     classes = df.target_class.unique()
     classes.sort()
     num_classes = len(classes)
     label_map = dict(zip(classes, range(num_classes)))
     labels = df.target_class.apply(lambda x: label_map[x])
     labels = to_categorical(labels, num_classes)
-    
     # Write out label map
     with open(os.path.join(subdir, LABEL_MAP_FILE), 'w') as f:
         json.dump(label_map, f)
-
-    # Get generators
-    traingen, valgen = get_training_generator(images,
-                                              labels,
-                                              config['training']['batch_size'],
-                                              config['training']['split'])
-
+    #
     # Setup model
+    #
     model = get_model(input_shape=(128,128,1))
     model.summary()
     #opt = SGD(lr=0.001, momentum=0.9)
@@ -197,11 +180,17 @@ def main(args):
     lr_metric = get_lr_metric(opt) # current learning rate metric
     model.compile(optimizer=opt, loss='categorical_crossentropy',
         metrics=['categorical_accuracy', lr_metric])
-
-    # Train model
+    #
+    # Train
+    #
     cbacks = get_callbacks(subdir, learn_rate=config['training']['learn_rate'],
         verbosity=config['training']['verbosity'],
         save_period=config['training']['save_period'])
+    traingen, valgen = get_training_generator(images,
+                                              labels,
+                                              config['training']['batch_size'],
+                                              config['training']['split'],
+                                              repeat_samples=repeat)
     try:
         history = model.fit_generator(traingen,
                                   epochs=config['training']['epochs'],
@@ -221,12 +210,51 @@ def main(args):
     return
 
 if __name__ == '__main__':
+    #
+    # Parse command line
+    #
     parser = get_parser()
     args = parser.parse_args()
-    if args.debug:
-        logging.basicConfig(level=logging.DEBUG)
+    #
+    # Parse config and overwrite with args
+    #
+    with open(args.configfn, 'r') as f:
+        config = yaml.load(f)
+    if args.prefix:
+        prefix = args.prefix
     else:
-        logging.basicConfig(level=logging.INFO)
-    main(args)
+        prefix = config['setup']['prefix']
+    if args.outdir:
+        outdir = args.outdir
+    else:
+        outdir = config['setup']['outdir']
+    #
+    # Make subdirectory for session
+    #
+    tstamp = datetime.datetime.utcnow()
+    subdir = tstamp.strftime("%Y_%m%d_%H%M%S")
+    subdir = '.'.join(('train', subdir))
+    if prefix: # Pre-prend prefix if provided
+        subdir = '_'.join((prefix, subdir))
+    subdir = os.path.join(outdir, subdir)
+    config['setup']['subdir'] = subdir
+    os.mkdir(os.path.join(outdir, subdir), 0o755)
+    shutil.copy(args.configfn, # Save copy of updated config to output dir
+                os.path.join(subdir, os.path.basename(args.configfn)))
+    #
+    # Configure logging
+    #
+    if args.debug: level=logging.DEBUG
+    else: level=logging.INFO
+    configure_logging(level=level, logfn=os.path.join(subdir, LOG_FILE))
+    #
+    # Main driver
+    #
+    try:
+        #main(args)
+        main(config)
+    except Exception as err:
+        log.error(err, exc_info=True)
+        raise
     exit(0)
         
