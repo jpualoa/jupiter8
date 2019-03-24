@@ -25,6 +25,7 @@ def cmtable(y_true, y_pred, label_map, title=None):
                      linewidths=0.5,
                      cbar=False)
     ax.tick_params(length=0, labeltop=True, labelbottom=False)
+    ax.set_xticklabels(labels, rotation=45.0)
     ax.set_frame_on(True)
     if title: ax.set_title(title, fontweight='bold')
     return ax
