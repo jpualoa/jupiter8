@@ -1,0 +1,188 @@
+#!/usr/bin/env python
+# Computes the 'network score' (based on Inception Score concept) of GAN network
+# Standard imports
+import os
+import logging
+import argparse
+import json
+
+# External dependencies
+import pymongo
+import numpy as np
+import pandas as pd
+import matplotlib.pyplot as plt
+from scipy import stats
+
+# Local imports
+from data.load2 import get_test_generator, load_images
+from small import get_model
+from utils.argutils import valid_path
+from utils.logging_config import configure as configure_logging
+
+# Defaults/Constants
+LAST_WEIGHTS = 'last_weights.h5'
+DEFAULT_WEIGHTS_DIR = '/data/jupiter8/session_output/experiments/no_rotation/samplesAll_train.20190310184942'
+DEFAULT_WEIGHTS = os.path.join(DEFAULT_WEIGHTS_DIR, LAST_WEIGHTS)
+DATABASE = 'mstar2'
+SYNTHS_COLLECTION = 'synthetics'
+REALS_COLLECTION = 'targets'
+DEP_ANGLE_TEST = '15_DEG'
+LABEL_MAP = 'label_map.json'
+BATCH_SIZE = 64
+TRUTH_DIST = [0.99999, 0.00001]
+
+log = logging.getLogger(__name__)
+
+
+def get_parser():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('nsamples', choices=[25, 50, 100, 101], type=int,
+        help="""Number of samples GAN was trained with. Choose 101 for 'all' samples""")
+    parser.add_argument('--weights', type=valid_path, default=DEFAULT_WEIGHTS,
+        help="""Model weights file""")
+    #
+    # Database options
+    #
+    dbgroup = parser.add_argument_group('Database Options')
+    dbgroup.add_argument('--database', type=str, default=DATABASE,
+        help="""Database to pull metadata from""")
+    dbgroup.add_argument('--synths-collection', type=str, dest='synths_collection',
+        default=SYNTHS_COLLECTION,
+        help="""Collection to pull sythetics metadata from""")
+    parser.add_argument('--debug', action='store_true')
+    return parser
+
+
+def main(args):
+    # Get model
+    model = get_model(input_shape=(128,128,1))
+    log.info("loading model weights")
+    model.load_weights(args.weights)
+
+    # Get label map
+    label_mapfn = os.path.join(DEFAULT_WEIGHTS_DIR, LABEL_MAP)
+    log.info("Loading label map file %s" % label_mapfn)
+    with open(label_mapfn, 'r') as f:
+        label_map = json.load(f)
+    log.info("label map: %s" % label_map)
+
+    # Create reverse lookup
+    lookup = dict([(v,k) for k,v in label_map.items()])
+    log.info("lookup: %s" % lookup)
+
+    # Setup mongo client
+    client = pymongo.MongoClient()
+    db = client[args.database]
+    
+    # Get dataframe of synthetic samples
+    cursor = db[args.synths_collection].find()
+    synths = pd.DataFrame(list(cursor))
+    if synths.empty: raise RuntimeError("No synths!")
+
+    # Get baseline with real test samples
+    cursor = db[REALS_COLLECTION].find({'depression_angle': DEP_ANGLE_TEST})
+    reals = pd.DataFrame(list(cursor))
+
+    #
+    # Compute baseline scores by class
+    #
+    real_scores = []
+    for name, group in reals.groupby('target_class'):
+        images = load_images(group.filename, crop_dim=(128,128))
+        # Get integer labels
+        labels = group.target_class.apply(label_map.get)
+        datagen = get_test_generator(images, labels, BATCH_SIZE)
+        y = model.predict_generator(datagen, steps=datagen.n // BATCH_SIZE+1)
+        real_scores.append((name, y.mean(axis=0)))
+    log.debug("real score shape: %s" % str(real_scores[0][1].shape))
+    real_scores.sort()
+    #
+    # Score synths by class
+    #
+    synth_scores = []
+    for name, group in synths.groupby('target_class'):
+        # Generate scores based on number of samples GAN was trained with
+        if args.nsamples == 101:
+            test = group[group.num_samples_trained_with >100]
+        else:
+            test = group[group.num_samples_trained_with == args.nsamples]
+        images = load_images(test.filename, crop_dim=(128,128))
+        labels = test.target_class.apply(label_map.get)
+        datagen = get_test_generator(images, labels, BATCH_SIZE)
+        y = model.predict_generator(datagen, steps=datagen.n // BATCH_SIZE+1)
+        predictions = np.argmax(y, axis=1)
+        pcc = 1.0 * len(predictions[predictions == labels]) / len(predictions)
+        synth_scores.append((name, y, pcc))
+    log.debug("synth score shape: %s" % str(synth_scores[0][1].shape))
+    synth_scores.sort()
+    #
+    # Visualize results
+    #
+    final_results = []
+    print('\n Samples Trained With: %d' % args.nsamples)
+    for (r_name, r_score), (s_name, s_score, pcc) in zip(real_scores, synth_scores):
+        assert r_name == s_name, "Names don't match (%s, %s)" % (r_name, s_name)
+        result = map(lambda x: stats.entropy(x, r_score), s_score)
+        score = np.mean(result)
+        print("%s:\tpcc=%0.4f\tscore=%0.4f" % (r_name, pcc, score))
+        final_results.append((r_name, pcc, score))
+    names,xdata,ydata = zip(*final_results)
+    fig, ax = plt.subplots()
+    ax.scatter(xdata,ydata)
+    for i, txt in enumerate(names):
+        ax.annotate(txt, (xdata[i], ydata[i]))
+    #
+    # Fit a curve to the results
+    #
+    curve_data = zip(xdata, ydata)
+    curve_data.sort()
+    newx, newy = zip(*curve_data)
+    m, b = np.polyfit(np.log(newx), newy, 1)
+    c = m * np.log(newx) + b
+    ax.plot(newx, c, '--', color='gray', alpha=0.7)
+    plt.title('Samples Trained With: %d' % args.nsamples)
+    plt.xlabel('pcc')
+    plt.ylabel('score')
+    plt.show()
+
+    return
+
+
+if __name__ == '__main__':
+    import tensorflow as tf
+    from keras.backend.tensorflow_backend import set_session
+    config = tf.ConfigProto()
+    config.gpu_options.per_process_gpu_memory_fraction = 0.3
+    set_session(tf.Session(config=config))
+    # Parse command line
+    parser = get_parser()
+    args = parser.parse_args()
+    # Configure logging
+    if args.debug:
+        configure_logging(level=logging.DEBUG)
+    else:
+        configure_logging(level=logging.INFO)
+    # Main driver
+    main(args)
+    exit(0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
