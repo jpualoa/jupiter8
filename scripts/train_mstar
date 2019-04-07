@@ -101,7 +101,6 @@ def main(config):
         # Filter synthetics based on number of samples the GAN was trained with
         #
         num_trained = config['synthetics']['num_samples_trained_with']
-        log.info("Pulling synthetics for num_samples_trained_with = %d" % num_trained)
         if not num_trained:
             synth_df = df[df.all_training_samples_used == True]
         else:
