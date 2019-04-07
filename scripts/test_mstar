@@ -19,12 +19,15 @@ from small import get_model
 from data.load2 import load_images, get_test_generator
 from utils.argutils import valid_path
 from analysis.confusion import cmtable
+from analysis.scoring import pcc
 
 DATABASE = 'mstar2'
 COLLECTION = 'targets'
+SYNTH_COLLECTION = 'synthetics'
 DEP_ANGLE_TEST = '15_DEG'
 LABEL_MAP = 'label_map.json'
 WEIGHTS = 'weights.%02d.h5'
+LAST_WEIGHTS = 'last_weights.h5'
 CSV_FILE = 'test_samples.csv'
 
 log = logging.getLogger(__name__)
@@ -32,19 +35,31 @@ log = logging.getLogger(__name__)
 def get_parser():
     parser = argparse.ArgumentParser(
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-    
-    parser.add_argument('outdir', type=valid_path,
-        help="""Output directory for test/training results""")
-
-    parser.add_argument('weightsnum', type=int,
+    parser.add_argument('modeldir', type=valid_path,
+        help="""Directory with model training results""")
+    parser.add_argument('--weightsnum', type=int, default=None,
         help="""Weights file to load""")
-
     parser.add_argument('--batch', type=int, default=32,
         help="""Batch size""")
-
     parser.add_argument('--max-samples', type=int, dest='max_samples',
         default=None,
         help="""Maximum number of samples to use PER CLASS""")
+    parser.add_argument('--outdir', type=valid_path, default=None,
+        help="""Test results saved to 'outdir' if specified""")
+    #
+    # Synthetics Options
+    #
+    synths = parser.add_argument_group('synths', 'synthetics options')
+    synths.add_argument('--test-synths', action='store_true', dest='test_synths',
+        help="""Test model on synthetic samples""")
+    synths.add_argument('--synths-collection', type=str, dest='synths_collection',
+        default=SYNTH_COLLECTION,
+        help="""Collection to pull synthetic samples from""")
+    synths.add_argument('--num-samples-trained', choices=[25, 50, 100, 101], type=int,
+        dest='num_samples_trained',
+        default=100,
+        help="""Number of real samples used to train the GAN that generated the
+            synthetic samples. Choose 101 for all trained with max samples""")
     return parser
 
 
@@ -52,10 +67,17 @@ def main(args):
     # Setup DB connection
     client = pymongo.MongoClient()
     db = client[DATABASE]
-    collection = db[COLLECTION]
 
-    # Query training data
-    query = {'depression_angle': DEP_ANGLE_TEST}
+    # Query test data
+    if args.test_synths:
+        collection = db[args.synths_collection]
+        if args.num_samples_trained == 101:
+            query = {'num_samples_trained_with':{'$gte': args.num_samples_trained}}
+        else:
+            query = {'num_samples_trained_with': args.num_samples_trained}
+    else:
+        collection = db[COLLECTION]
+        query = {'depression_angle': DEP_ANGLE_TEST}
     cursor = collection.find(query)
 
     # Construct data frame
@@ -76,10 +98,10 @@ def main(args):
 
     # Setup labels
     log.info("configuring labels")
-    with open(os.path.join(args.outdir, LABEL_MAP), 'r') as f:
+    with open(os.path.join(args.modeldir, LABEL_MAP), 'r') as f:
         label_map = json.load(f)
     labels = df.target_class.apply(lambda x: label_map[x])
-    np.savetxt(os.path.join(args.outdir, 'labels.log'), labels, fmt='%d', delimiter=',')
+    np.savetxt(os.path.join(args.modeldir, 'labels.log'), labels, fmt='%d', delimiter=',')
     log.info("loaded %d labels" % len(labels))
 
     # Get data generator
@@ -89,22 +111,35 @@ def main(args):
     #model = get_aconv((88, 88, 1))
     model=get_model(input_shape=(128,128,1))
     log.info("loading model weights")
-    model.load_weights(os.path.join(args.outdir,WEIGHTS % args.weightsnum))
+    if args.weightsnum:
+        weights_file = os.path.join(args.modeldir,WEIGHTS % args.weightsnum)
+    else:
+        weights_file = os.path.join(args.modeldir,LAST_WEIGHTS)
+    model.load_weights(weights_file)
     model.summary()
 
     # Evaluate
     log.info("predicting on samples")
     y = model.predict_generator(datagen, steps=datagen.n // args.batch + 1)
     predictions = np.argmax(y, axis=1)
-    np.savetxt(os.path.join(args.outdir, 'predictions.log'), predictions, fmt='%d', delimiter=',')
+    if args.outdir:
+        np.savetxt(os.path.join(args.outdir, 'predictions.log'), predictions, fmt='%d', delimiter=',')
     print(confusion_matrix(labels, predictions, labels=range(10)))
+
+    # Print classification results
+    res = pcc(predictions, labels)
+    lookup = dict([(v,k) for k,v in label_map.items()])
+    for k,v in res.items():
+        print('%s: %2.3f' % (k, 100 * v))
+    
 
     # Plot confusion matrix
     ax = cmtable(labels, predictions, label_map)
-    cmfile = os.path.join(args.outdir, 'confusion_matrix.png')
-    log.info("Saving confusion matrix plot to %s" % cmfile)
-    plt.savefig(cmfile)
-    #plt.show()
+    if args.outdir:
+        cmfile = os.path.join(args.outdir, 'confusion_matrix.png')
+        log.info("Saving confusion matrix plot to %s" % cmfile)
+        plt.savefig(cmfile)
+    plt.show()
 
     return
 
