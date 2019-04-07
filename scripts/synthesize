@@ -37,6 +37,7 @@ TRAINING_SAMPLES = "training_samples.yaml"
 DATABASE = 'mstar2'
 COLLECTION = 'synthetics'
 TRAINING_SAMPLES = 'training_samples.yaml'
+WEIGHTS_DIR = 'weights'
 
 log = logging.getLogger(__name__)
 
@@ -59,8 +60,18 @@ def get_parser():
         help="""Quantity of images to synthesize""")
     parser.add_argument('modeldir', type=valid_path,
         help="""Directory location of model weights and config files""")
-    parser.add_argument('outdir', type=valid_path,
+    parser.add_argument('outdir', type=valid_path, default=None,
         help="""directory to write images to""")
+    parser.add_argument('-c', '--create-meta', action='store_true',
+        dest='create_meta',
+        help="""Create metadata entries for synthesized samples""")
+    #
+    # Weights options
+    #
+    wgroup = parser.add_argument_group('weights options')
+    wgroup.add_argument('--weights-epoch', type=int, dest='weights_epoch',
+        default=None,
+        help="""If specifed, attempts to load weights from the provided epoch""")
     #
     # Database options
     #
@@ -100,7 +111,6 @@ def main(args):
     sources = os.path.join(args.modeldir, TRAINING_SAMPLES)
     if not os.path.exists(sources):
         raise RuntimeError("Could not locate training samples file for model (%s)" % sources)
-
     #
     # Setup database connection
     #
@@ -111,7 +121,6 @@ def main(args):
     if args.collection not in db.collection_names():
         log.warn("Collection %s does not exist in database %s, creating new collection"
             % (args.collection, args.database))
-
     #
     # Build generator
     #
@@ -121,10 +130,13 @@ def main(args):
         generator = model_from_json(f.read())
     log.info("Building generator model")
     generator = build_generator(generator, LATENT_DIM)
-    genweightsfile = os.path.join(args.modeldir, GEN_WEIGHTS)
+    if args.weights_epoch:
+        fn = os.path.join(WEIGHTS_DIR, 'gen_weights_%d.h5' % args.weights_epoch)
+        genweightsfile = os.path.join(args.modeldir, fn)
+    else:
+        genweightsfile = os.path.join(args.modeldir, GEN_WEIGHTS)
     log.info("Loading generator model weights %s" % genweightsfile)
     generator.load_weights(genweightsfile)
-
     #
     # Generate images
     #
@@ -132,10 +144,8 @@ def main(args):
     for i in xrange(args.qty):
         noise = np.random.normal(0, 1, (1, LATENT_DIM))
         synth = generator.predict(noise)
-
         # Rescale image magnitudes to [0,1]
         synth = 0.5 * synth + 0.5
-
         # Save image
         name = '%s_synth_%d.png' % (args.target, i)
         if args.prefix: name = '_'.join((args.prefix, name))
@@ -143,27 +153,28 @@ def main(args):
         log.debug("Saving image %s" % fname)
         plt.imsave(fname, synth[0,:,:,0], cmap='gray')
 
-        # Make database entry for image
-        d = {}
-        d['filename'] = fname
-        d['generator_model'] = genmodelfile
-        d['generator_weights'] = genweightsfile
-        d['target_class'] = args.target
-        d['sources'] = sources
-        d['num_samples_trained_with'] = num_samples_trained_with
-        d['all_training_samples_used'] = all_samples_used
-        documents.append(d)
+        # Make metadata doc for each synthesized image
+        if args.create_meta:
+            d = {}
+            d['filename'] = fname
+            d['generator_model'] = genmodelfile
+            d['generator_weights'] = genweightsfile
+            d['target_class'] = args.target
+            d['sources'] = sources
+            d['num_samples_trained_with'] = num_samples_trained_with
+            d['all_training_samples_used'] = all_samples_used
+            documents.append(d)
     log.info("Generated %d synthetics for target class %s" % (args.qty, args.target))
-
     #
     # Write metadata to DB
     #
-    num_inserted = 0
-    log.info("Inserting synthetics metadata into the database")
-    for doc in documents:
-        result = db[args.collection].insert(doc)
-        if result: num_inserted +=1
-    log.info("Inserted %d of %d documents into the database" % (num_inserted, len(documents)))
+    if args.create_meta:
+        num_inserted = 0
+        log.info("Inserting synthetics metadata into the database")
+        for doc in documents:
+            result = db[args.collection].insert(doc)
+            if result: num_inserted +=1
+        log.info("Inserted %d of %d documents into the database" % (num_inserted, len(documents)))
 
     return
         
@@ -177,6 +188,15 @@ if __name__ == '__main__':
         logging.basicConfig(level=logging.DEBUG)
     else:
         logging.basicConfig(level=logging.INFO)
+    # Validate options
+    if args.create_meta:
+        print("Synth metadata will be logged to %s in database %s" % (args.collection, args.database))
+        response = raw_input("Enter 'c' to continue: ")
+        if not response == 'c':
+            print('Quitting')
+            exit(0)
+    else:
+        print("Synth metadata will NOT be logged")
     # Main
     main(args)
     exit(0)
