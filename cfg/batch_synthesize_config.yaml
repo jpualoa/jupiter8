@@ -2,19 +2,24 @@
 
 parent_dir: '.' # Directory containing subdirectories of all trained models
 
-targets: # Mapping of target class to subdirectory of trained model
-    - 2S1
-    - BMP2
-    - BRDM_2
-    - BTR_60
-    - BTR70
-    - D7
-    - T62 
-    - T72
-    - ZIL131
-    - ZSU_23_4
+targets: # Each entry contains a target class and the weight epoch to use for the model
+    - [2S1,      500]
+    - [BMP2,     1000]
+    - [BRDM_2    500]
+    - [BTR_60,   750]
+    - [BTR70,    750]
+    - [D7,       1500]
+    - [T62,      1000]
+    - [T72,      950]
+    - [ZIL131,   500]
+    - [ZSU_23_4, 1000]
 
 num_synths: 1000
+
+db:
+    name: mstar2
+    targets: 'targets'
+    synthetics: 'synthetics'
 
 setup:
     random_seed: 1234
