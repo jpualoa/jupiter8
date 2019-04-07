@@ -1,0 +1,57 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import sys
+import argparse
+
+# External dependencies
+import pandas as pd
+import matplotlib.pyplot as plt
+
+# Local imports
+from utils.argutils import valid_path
+
+COLUMNS = ['epoch', 'cat_acc', 'cat_loss', 'cat_lr', 'val_acc', 'val_loss', 'val_lr']
+LOG_FILE = 'training.log'
+PLOT_FILE = 'training.png'
+
+
+def get_parser():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('indir', type=valid_path,
+        help="""Directory containing training log file""")
+    parser.add_argument('-s', '--save', action='store_true',
+        help="""Save plots""")
+    parser.add_argument('--outdir', type=valid_path, default=None,
+        help="""Directory to save plots to (uses indir if None)""")
+    return parser
+
+
+def main(args):
+    logfn = os.path.join(args.indir, LOG_FILE)
+    df = pd.read_csv(logfn, header=0, names=COLUMNS)
+    fig, axes = plt.subplots(2,1)
+    fig.suptitle('Training Results')
+    # Plot accuracy
+    df.plot(x='epoch', y=['cat_acc', 'val_acc'], ax=axes[0], grid=True)
+    axes[0].set_xlabel('')
+    # Plot loss
+    df.plot(x='epoch', y=['cat_loss', 'val_loss'], ax=axes[1], grid=True)
+
+    # Save plot
+    if args.save:
+        if args.outdir: outdir = args.outdir
+        else: outdir = args.indir
+        fname = os.path.join(outdir, PLOT_FILE)
+        plt.savefig(fname)
+
+    plt.show()
+
+    return
+
+if __name__ == '__main__':
+    parser = get_parser()
+    args = parser.parse_args()
+    main(args)
+    exit(0)
