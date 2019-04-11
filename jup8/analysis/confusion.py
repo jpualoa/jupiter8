@@ -8,7 +8,7 @@ def cmtable(y_true, y_pred, label_map, title=None):
     """Returns a confusion matrix table
     """
     cm = confusion_matrix(y_true, y_pred)
-    cm = 100. * cm / cm.sum(axis=1)
+    cm = 100. * cm / np.reshape(cm.sum(axis=1), (cm.shape[0],1))
     # Invert label map
     d = {}
     for k,v in label_map.items():
