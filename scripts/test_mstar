@@ -29,6 +29,7 @@ LABEL_MAP = 'label_map.json'
 WEIGHTS = 'weights.%02d.h5'
 LAST_WEIGHTS = 'last_weights.h5'
 CSV_FILE = 'test_samples.csv'
+CM_FILENAME = 'confusion_matrix'
 
 log = logging.getLogger(__name__)
 
@@ -46,6 +47,9 @@ def get_parser():
         help="""Maximum number of samples to use PER CLASS""")
     parser.add_argument('--outdir', type=valid_path, default=None,
         help="""Test results saved to 'outdir' if specified""")
+    parser.add_argument('--cm-filename', type=str, default=CM_FILENAME,
+        dest='cm_filename',
+        help="""Filename to use for saved confusion matrix image""")
     #
     # Synthetics Options
     #
@@ -136,7 +140,8 @@ def main(args):
     # Plot confusion matrix
     ax = cmtable(labels, predictions, label_map)
     if args.outdir:
-        cmfile = os.path.join(args.outdir, 'confusion_matrix.png')
+        cmfile_basename = '.'.join((args.cm_filename, 'png'))
+        cmfile = os.path.join(args.outdir, cmfile_basename)
         log.info("Saving confusion matrix plot to %s" % cmfile)
         plt.savefig(cmfile)
     plt.show()
