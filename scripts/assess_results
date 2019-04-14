@@ -1,0 +1,103 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import argparse
+import logging
+
+# External dependencies
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+sns.set()
+
+# Local imports
+from utils.argutils import valid_path
+
+# Constants/defaults
+RESULTS_FILE = 'pred_results.csv'
+TARGETS = [
+    "BTR_60",
+    "2S1",
+    "BRDM_2",
+    "D7",
+    "T62",
+    "ZIL131",
+    "ZSU_23_4",
+    "BMP2",
+    "BTR70",
+    "T72"
+]
+
+# Shared logger
+log = logging.getLogger(__name__)
+
+def get_pcc(df):
+    targets = list(df.target.unique())
+    targets.sort()
+    grouped = df.groupby('target')
+    results = []
+    for t in targets:
+        group = grouped.get_group(t)
+        num_targets = len(group)
+        num_correct = len(group[group.label == group.prediction])
+        pcc = 1.0 * num_correct / num_targets
+        results.append((t, pcc))
+    return results
+
+
+def get_parser():
+    parser = argparse.ArgumentParser(
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter)
+    parser.add_argument('indir', type=valid_path,
+        help="""Input directory to walk looking for results""")
+    parser.add_argument('--experiment-filter', type=str, default=None,
+        dest='experiment_filter',
+        help="""Experiment type to filter results on (e.g. 'samples100')""")
+    parser.add_argument('--debug', action='store_true',
+        help="""Turn on debug messages""")
+    return parser
+
+
+def main(args):
+    test_results = []
+    for dirpath, dirnames, filenames in os.walk(args.indir):
+        if RESULTS_FILE not in filenames: continue
+        #if 'samplesAll' in dirpath: continue
+        # Get experiment name
+        experiment = os.path.basename(dirpath.split('_train')[0])
+        log.info("Getting results for experiment: %s" % experiment)
+        # Build data frame
+        df = pd.read_csv(os.path.join(dirpath, RESULTS_FILE))
+        df['experiment'] = [experiment for _ in range(len(df))]
+        test_results.append(df)
+    # Concatenate results
+    df_test_results = pd.concat(test_results, ignore_index=True)
+
+    perf_results = []
+    grouped = df_test_results.groupby('experiment')
+    for name, group in grouped:
+        perf_results.extend([(t,pcc,name) for t,pcc in get_pcc(group)])
+    df_perf_results = pd.DataFrame(perf_results, columns=['target', 'pcc', 'experiment'])
+    if args.experiment_filter:
+        mask = df_perf_results.experiment.apply(lambda x: x.startswith(args.experiment_filter))
+        df_perf_results = df_perf_results[mask]
+    g = sns.catplot(x='pcc',
+                    y='target',
+                    hue='experiment',
+                    jitter=False,
+                    palette='Set2',
+                    data=df_perf_results)
+    plt.show()
+
+    return
+
+
+if __name__ == '__main__':
+    parser = get_parser()
+    args = parser.parse_args()
+    if args.debug:
+        logging.basicConfig(level=logging.DEBUG)
+    else:
+        logging.basicConfig(level=logging.INFO)
+    main(args)
+    exit(0)
