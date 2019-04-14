@@ -3,6 +3,7 @@
 import os
 import logging
 import argparse
+from math import sqrt
 
 # External dependencies
 import pymongo
@@ -15,8 +16,9 @@ from utils.argutils import valid_path
 DEFAULT_DATABASE = 'mstar2'
 TARGET_COLLECTION = 'targets'
 SYNTH_COLLECTION = 'synthetics'
-DEFAULT_NUM_SAMPLES = 5
+NUM_SAMPLES = 9
 DEP_ANGLE_TEST = '15_DEG'
+DEP_ANGLE_TRAIN = '15_DEG'
 TARGETS = [
     "BTR_60",
     "2S1",
@@ -30,8 +32,6 @@ TARGETS = [
     "T72"
 ]
 
-TARGETS = ['BTR_60', 'T72', 'ZIL131']
-
 
 client = pymongo.MongoClient()
 db = client[DEFAULT_DATABASE]
@@ -44,11 +44,14 @@ def get_parser():
     parser.add_argument('--outdir', type=valid_path,
         default='.',
         help="""output directory for sample images""")
-#    parser.add_argument('label', choices=TARGETS,
-#        help="""sample label to filter on""")
-    parser.add_argument('--num-samples', type=int, dest='num_samples',
-        default=DEFAULT_NUM_SAMPLES,
-        help="""number of samples to display per class""")
+    parser.add_argument('label', choices=TARGETS,
+        help="""sample label to filter on""")
+    parser.add_argument('--show-training', action='store_true', dest='show_training',
+        help="""If viewing real samples, show samples from the training set. 
+            Otherwise show samples from the test set""")
+    #parser.add_argument('--num-samples', type=int, dest='num_samples',
+    #    default=DEFAULT_NUM_SAMPLES,
+    #    help="""number of samples to display per class""")
     parser.add_argument('--synths', action='store_true',
         help="""show synthesized samples""")
     parser.add_argument('--samples-trained-with', choices=[25, 50, 100, 101],
@@ -64,7 +67,10 @@ def load_targets(args):
         cursor = db[SYNTH_COLLECTION].find(query)
         df = pd.DataFrame(list(cursor))
     else:
-        cursor = db[TARGET_COLLECTION].find()
+        query = {'target_class': args.label}
+        if args.show_training: query['depression_angle'] = DEP_ANGLE_TRAIN
+        else: query['depression_angle'] = DEP_ANGLE_TEST
+        cursor = db[TARGET_COLLECTION].find(query)
         df = pd.DataFrame(list(cursor))
     return df
 
@@ -73,22 +79,21 @@ def main(args):
     
     # Get random sample of images for each class
     images = {}
-    for klass in TARGETS:
-        samples = df[df.target_class == klass].sample(args.num_samples)
-        filenames = list(samples.filename)
-        images[klass] = [plt.imread(fn) for fn in filenames]
+    filenames = list(df.filename.sample(NUM_SAMPLES))
+    images = [plt.imread(fn) for fn in filenames]
 
-    rows = len(TARGETS)
-    cols = args.num_samples
-
+    rows = int(sqrt(NUM_SAMPLES))
+    cols = rows
     fig, axes = plt.subplots(rows, cols)
+    idx = 0
     for i in xrange(rows):
         for j in xrange(cols):
-            klass = TARGETS[i]    
-            img = images[klass][j]
+            img = images[idx]
+            fn = filenames[idx]
+            idx +=1
             ax = axes[i, j]
             ax.axis('off')
-            ax.set_title("%s (%d)" % (klass, j))
+            ax.set_title("%s" % os.path.basename(fn), fontsize=8)
             ax.imshow(img, cmap='gray')
     plt.show()
 #    output_file = 'samples'

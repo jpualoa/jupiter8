@@ -27,5 +27,17 @@ training:
     batch_size: 32
     learn_rate: 0.0002
 
+synthetics:
+    BTR_60: null
+    2S1: null
+    BRDM_2: null
+    D7: null
+    T62: null
+    ZIL131: null
+    ZSU_23_4: null
+    BMP2: null
+    BTR70: null
+    T72: null
+
 setup:
     random_seed: 1234

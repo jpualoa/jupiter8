@@ -1,13 +1,14 @@
 # Path to dir this script resides in
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
-export JUP8_PYTHONPATH="$SCRIPT_DIR/jup8"
-export JUP8_SCRIPTS="$SCRIPT_DIR/scripts"
+export JUP8_PYTHONPATH=${SCRIPT_DIR}/jup8
+export JUP8_SCRIPTS=${SCRIPT_DIR}/scripts
 export JUP8_GITPATH=${SCRIPT_DIR}
 export JUP8_CONFIG=${SCRIPT_DIR}/cfg
  
 # Setup Python
-export PYTHONPATH=${PYTHONPATH}:${JUP8_PYTHONPATH}
+#export PYTHONPATH=${PYTHONPATH}:${JUP8_PYTHONPATH}
+export PYTHONPATH=${JUP8_PYTHONPATH}:${PYTHONPATH}
 
 # Setup matplotlib
 export MPLBACKEND='Qt4Agg'

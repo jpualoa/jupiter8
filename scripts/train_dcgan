@@ -11,15 +11,16 @@ import pymongo
 import pandas as pd
 from keras.optimizers import Adam
 from keras.models import model_from_json
-
-# Local imports
-from dcgan.dcgan import DCGAN, get_generator, get_discriminator
-from data.load2 import load_images
 try:
     from bmt.utilities.git import log_repo_state
     BMT_IMPORTED = True
 except ImportError:
     BMT_IMPORTED = False
+
+# Local imports
+from utils.argutils import valid_path, valid_list
+from dcgan.dcgan import DCGAN, get_generator, get_discriminator
+from data.load2 import load_images
 
 JUP8_GITPATH = 'JUP8_GITPATH'
 DATABASE = 'mstar2'
@@ -40,14 +41,7 @@ TARGETS = [
     "T72"
 ]
 
-
 log = logging.getLogger(__name__)
-
-def valid_path(path):
-    p = os.path.expandvars(path)
-    if not os.path.exists(p):
-        raise ValueError("%s does not exist" % p)
-    return p
 
 
 def get_parser():
@@ -58,6 +52,10 @@ def get_parser():
         help="""results output directory""")
     parser.add_argument('--num-samples', type=int, default=None,
         help="""number of samples to train with (uses all samples if not specified)""")
+    parser.add_argument('--synths-list-file', type=valid_path, dest='synths_list_file',
+        default=None,
+        help="""file conatining comma-separate list of synthetic image samples 
+            to also use in training""")
     parser.add_argument('--rows', type=int, default=128, help="""image rows""")
     parser.add_argument('--cols', type=int, default=128, help="""image columns""")
     parser.add_argument('--channels', type=int, default=1, help="""image channels""")
@@ -158,14 +156,20 @@ def main(args):
     network.set_outdir(subdir)
 
     # Get training data
-    log.info("Getting training samples for class %s" % args.target)
+    log.info("Getting real training samples for class %s" % args.target)
     df = get_data(args.target, TRAIN_DEP_ANGLE)
     if args.num_samples:
-        log.info("Limiting samples to a maximum of %d" % args.num_samples)
-        filenames = df.filename.sample(args.num_samples,
-                                       random_state=args.random_seed)
-    else:
-        filenames = df.filename
+        log.info("Limiting real samples to a maximum of %d" % args.num_samples)
+        filenames = list(df.filename.sample(args.num_samples,
+                                       random_state=args.random_seed))
+    else: filenames = list(df.filename)
+    if args.synths_list_file:
+        log.info("Getting synthetic training samples")
+        with open(args.synths_list_file, 'r') as f:
+            synth_files = f.read().split(',')
+        # Check synthetics files
+        synth_files = map(valid_path, synth_files)
+        filenames.extend(synth_files)
     data = load_images(list(filenames), crop_dim=(args.rows, args.cols), add_channels=False)
     log.info("Loaded %d training sample images" % len(data))
 

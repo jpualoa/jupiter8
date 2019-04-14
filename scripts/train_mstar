@@ -95,36 +95,46 @@ def main(config):
     synth_sources = [] # Container for real samples used to create synthetics
     if config['synthetics']['use_synthetics']:
         log.info("Loading synthetic samples")
-        cursor = synth_collection.find() # pull all synths
-        df = pd.DataFrame(list(cursor))
-        #
-        # Filter synthetics based on number of samples the GAN was trained with
-        #
-        num_trained = config['synthetics']['num_samples_trained_with']
-        if not num_trained:
-            synth_df = df[df.all_training_samples_used == True]
+        if config['synthetics']['synthetic_files']:
+            log.info("Limiting synthetics to those specified in config file")
+            synth_files = config['synthetics']['synthetic_files']
+            synth_list = []
+            for fn in synth_files:
+                with open(fn, 'r') as f:
+                    synth_list.extend(f.read().split(','))
+            query = {'filename': {'$in':synth_list}}
+            cursor = synth_collection.find(query)
+            synth_df = pd.DataFrame(list(cursor))
         else:
-            log.info("Limiting synthetics to those trained with %d samples" % num_trained)
-            if num_trained not in df.num_samples_trained_with.unique():
-                raise ValueError("%d not a valid value for num_samples_trained_with"
-                    % num_trained)
-            synth_df = df[df.num_samples_trained_with == num_trained]
-        log.debug("Num synthetic samples: %d" % len(synth_df))
-        #
-        # Filter number of synthetics used
-        #
-        num_synths = config['synthetics']['num_synth_samples']
-        if num_synths:
-            log.info("Limiting synth samples per class to %d" % num_synths)
-            subsets = []
-            for name, group in synth_df.groupby('target_class'):
-                subsets.append(group.sample(num_synths))
-            synth_df = pd.concat(subsets)
+            cursor = synth_collection.find() # pull all synths
+            df = pd.DataFrame(list(cursor))
+            #
+            # Filter synthetics based on number of samples the GAN was trained with
+            #
+            num_trained = config['synthetics']['num_samples_trained_with']
+            if not num_trained:
+                synth_df = df[df.all_training_samples_used == True]
+            else:
+                log.info("Limiting synthetics to those trained with %d samples" % num_trained)
+                if num_trained not in df.num_samples_trained_with.unique():
+                    raise ValueError("%d not a valid value for num_samples_trained_with"
+                        % num_trained)
+                synth_df = df[df.num_samples_trained_with == num_trained]
             log.debug("Num synthetic samples: %d" % len(synth_df))
+            #
+            # Filter number of synthetics used
+            #
+            num_synths = config['synthetics']['num_synth_samples']
+            if num_synths:
+                log.info("Limiting synth samples per class to %d" % num_synths)
+                subsets = []
+                for name, group in synth_df.groupby('target_class'):
+                    subsets.append(group.sample(num_synths))
+                synth_df = pd.concat(subsets)
+                log.debug("Num synthetic samples: %d" % len(synth_df))
         #
         # Get list of all real samples used to generate the synthetics
         #
-        print(synth_df.sources.unique())
         for sourcefn in synth_df.sources.unique():
             with open(sourcefn, 'r') as f:
                 s = yaml.load(f)

@@ -125,10 +125,22 @@ def main(args):
     # Evaluate
     log.info("predicting on samples")
     y = model.predict_generator(datagen, steps=datagen.n // args.batch + 1)
-    predictions = np.argmax(y, axis=1)
-    if args.outdir:
-        np.savetxt(os.path.join(args.outdir, 'predictions.log'), predictions, fmt='%d', delimiter=',')
+    predictions = y.argmax(axis=1)
+    scores = np.amax(y, axis=1)
+    #if args.outdir:
+    #    np.savetxt(os.path.join(args.outdir, 'predictions.log'), predictions, fmt='%d', delimiter=',')
     print(confusion_matrix(labels, predictions, labels=range(10)))
+
+    # Save results dataframe
+    if args.outdir:
+        res_data = {}
+        res_data['filename'] = list(df.filename)
+        res_data['target'] = list(df.target_class)
+        res_data['label'] = list(labels)
+        res_data['prediction'] = predictions.tolist()
+        res_data['score'] = scores.tolist()
+        res_df = pd.DataFrame(res_data)
+        res_df.to_csv(os.path.join(args.outdir, 'pred_results.csv'), index=False, sep=',')
 
     # Print classification results
     res = pcc(predictions, labels)
@@ -149,13 +161,8 @@ def main(args):
     return
 
 if __name__ == '__main__':
-    logging.basicConfig(level=20)
+    logging.basicConfig(level=10)
     parser = get_parser()
     args = parser.parse_args()
-    try:
-        main(args)
-    except Exception as err:
-        log.error(err, exc_info=True)
-        exit(1)
-    else:
-        exit(0)
+    main(args)
+    exit(0)

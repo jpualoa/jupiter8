@@ -48,12 +48,13 @@ def main(args):
         #
         parser = train_dcgan.get_parser()
         cmd_args = parser.parse_args(args=[target, args.outdir])
+        cmd_args.num_samples = config['training']['num_samples']
+        cmd_args.synths_list_file = config['synthetics'][target]
         cmd_args.rows = config['image']['rows']
         cmd_args.cols = config['image']['cols']
         cmd_args.channels = config['image']['channels']
         cmd_args.latent_dim = config['model']['latent_dim']
         cmd_args.epochs = config['training']['epochs']
-        cmd_args.num_samples = config['training']['num_samples']
         cmd_args.batch = config['training']['batch_size']
         cmd_args.learning = config['training']['learn_rate']
         cmd_args.prefix = target
