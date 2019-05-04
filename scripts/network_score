@@ -51,6 +51,12 @@ def get_parser():
         default=SYNTHS_COLLECTION,
         help="""Collection to pull sythetics metadata from""")
     parser.add_argument('--debug', action='store_true')
+    #
+    # Miscellaneous options
+    #
+    parser.add_argument('--text-rotation', type=float, dest='text_rotation',
+        default=0.0,
+        help="""Degrees to rotate annotation text""")
     return parser
 
 
@@ -107,7 +113,9 @@ def main(args):
             test = group[group.num_samples_trained_with >100]
         else:
             test = group[group.num_samples_trained_with == args.nsamples]
+        if test.empty: raise RuntimeError("No synths for %s" % name)
         images = load_images(test.filename, crop_dim=(128,128))
+        log.debug("Loaded %d images for class %s" % (len(images), name))
         labels = test.target_class.apply(label_map.get)
         datagen = get_test_generator(images, labels, BATCH_SIZE)
         y = model.predict_generator(datagen, steps=datagen.n // BATCH_SIZE+1)
@@ -131,7 +139,7 @@ def main(args):
     fig, ax = plt.subplots()
     ax.scatter(xdata,ydata)
     for i, txt in enumerate(names):
-        ax.annotate(txt.replace('_', ''), (xdata[i], ydata[i]), rotation=45.0)
+        ax.annotate(txt.replace('_', ''), (xdata[i], ydata[i]), rotation=args.text_rotation)
     #
     # Fit a curve to the results
     #
@@ -141,7 +149,11 @@ def main(args):
     m, b = np.polyfit(np.log(newx), newy, 1)
     c = m * np.log(newx) + b
     ax.plot(newx, c, '--', color='gray', alpha=0.7)
-    plt.title('Samples Trained With: %d' % args.nsamples)
+    if args.nsamples == 101:
+        num_samples_str = 'All Samples'
+    else:
+        num_samples_str = str(args.nsamples)
+    plt.title('Synths Network Score\nSamples Trained With: %s' % num_samples_str)
     plt.xlabel('pcc')
     plt.ylabel('score')
     plt.show()
