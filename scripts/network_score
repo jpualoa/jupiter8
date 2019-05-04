@@ -131,7 +131,7 @@ def main(args):
     fig, ax = plt.subplots()
     ax.scatter(xdata,ydata)
     for i, txt in enumerate(names):
-        ax.annotate(txt, (xdata[i], ydata[i]))
+        ax.annotate(txt.replace('_', ''), (xdata[i], ydata[i]), rotation=45.0)
     #
     # Fit a curve to the results
     #
