@@ -64,6 +64,8 @@ def get_parser():
         default=100,
         help="""Number of real samples used to train the GAN that generated the
             synthetic samples. Choose 101 for all trained with max samples""")
+    synths.add_argument('--synths-tag', type=str, default=None, dest='synths_tag',
+        help="""Tag to filter synthetic samples on""")
     return parser
 
 
@@ -79,6 +81,8 @@ def main(args):
             query = {'num_samples_trained_with':{'$gte': args.num_samples_trained}}
         else:
             query = {'num_samples_trained_with': args.num_samples_trained}
+        if args.synths_tag:
+            query['tags'] = [args.synths_tag]
     else:
         collection = db[COLLECTION]
         query = {'depression_angle': DEP_ANGLE_TEST}
@@ -86,6 +90,7 @@ def main(args):
 
     # Construct data frame
     df = pd.DataFrame(list(cursor))
+    if df.empty: raise RuntimeError("Empty data frame for query %s" % query)
 
     # Limit samples used per class
     if args.max_samples:
@@ -129,7 +134,8 @@ def main(args):
     scores = np.amax(y, axis=1)
     #if args.outdir:
     #    np.savetxt(os.path.join(args.outdir, 'predictions.log'), predictions, fmt='%d', delimiter=',')
-    print(confusion_matrix(labels, predictions, labels=range(10)))
+    cmatrix = confusion_matrix(labels, predictions, labels=range(10))
+    print(cmatrix)
 
     # Save results dataframe
     if args.outdir:
@@ -145,8 +151,11 @@ def main(args):
     # Print classification results
     res = pcc(predictions, labels)
     lookup = dict([(v,k) for k,v in label_map.items()])
+    pcc_scores = []
     for k,v in res.items():
         print('%s: %2.3f' % (k, 100 * v))
+        pcc_scores.append(100* v)
+    print("Average PCC: %f" % (sum(pcc_scores) / 10.0))
     
 
     # Plot confusion matrix

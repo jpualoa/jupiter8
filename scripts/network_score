@@ -50,10 +50,11 @@ def get_parser():
     dbgroup.add_argument('--synths-collection', type=str, dest='synths_collection',
         default=SYNTHS_COLLECTION,
         help="""Collection to pull sythetics metadata from""")
-    parser.add_argument('--debug', action='store_true')
     #
     # Miscellaneous options
     #
+    parser.add_argument('--debug', action='store_true',
+        help="""Enable debug output""")
     parser.add_argument('--text-rotation', type=float, dest='text_rotation',
         default=0.0,
         help="""Degrees to rotate annotation text""")
@@ -93,16 +94,24 @@ def main(args):
     #
     # Compute baseline scores by class
     #
-    real_scores = []
-    for name, group in reals.groupby('target_class'):
-        images = load_images(group.filename, crop_dim=(128,128))
-        # Get integer labels
-        labels = group.target_class.apply(label_map.get)
-        datagen = get_test_generator(images, labels, BATCH_SIZE)
-        y = model.predict_generator(datagen, steps=datagen.n // BATCH_SIZE+1)
-        real_scores.append((name, y.mean(axis=0)))
-    log.debug("real score shape: %s" % str(real_scores[0][1].shape))
-    real_scores.sort()
+#    real_scores = []
+#    for name, group in reals.groupby('target_class'):
+#        images = load_images(group.filename, crop_dim=(128,128))
+#        # Get integer labels
+#        labels = group.target_class.apply(label_map.get)
+#        datagen = get_test_generator(images, labels, BATCH_SIZE)
+#        y = model.predict_generator(datagen, steps=datagen.n // BATCH_SIZE+1)
+#        real_scores.append((name, y.mean(axis=0)))
+#    log.debug("real score shape: %s" % str(real_scores[0][1].shape))
+#    real_scores.sort()
+    images = load_images(reals.filename, crop_dim=(128,128))
+    # Get integer labels
+    labels = reals.target_class.apply(label_map.get)
+    datagen = get_test_generator(images, labels, BATCH_SIZE)
+    y = model.predict_generator(datagen, steps=datagen.n // BATCH_SIZE+1)
+    real_score = y.mean(axis=0)
+    log.info("Real score shape %s" % str(real_score.shape))
+    log.debug("Real score: %s" % str(real_score))
     #
     # Score synths by class
     #
@@ -119,6 +128,12 @@ def main(args):
         labels = test.target_class.apply(label_map.get)
         datagen = get_test_generator(images, labels, BATCH_SIZE)
         y = model.predict_generator(datagen, steps=datagen.n // BATCH_SIZE+1)
+        print('y shape', str(y.shape))
+        foo = y[:,label_map.get(name)]
+        plt.hist(foo, bins=10)
+        plt.title(name)
+        plt.show()
+
         predictions = np.argmax(y, axis=1)
         pcc = 1.0 * len(predictions[predictions == labels]) / len(predictions)
         synth_scores.append((name, y, pcc))
@@ -129,12 +144,18 @@ def main(args):
     #
     final_results = []
     print('\n Samples Trained With: %d' % args.nsamples)
-    for (r_name, r_score), (s_name, s_score, pcc) in zip(real_scores, synth_scores):
-        assert r_name == s_name, "Names don't match (%s, %s)" % (r_name, s_name)
-        result = map(lambda x: stats.entropy(x, r_score), s_score)
-        score = np.mean(result)
-        print("%s:\tpcc=%0.4f\tscore=%0.4f" % (r_name, pcc, score))
-        final_results.append((r_name, pcc, score))
+#    for (r_name, r_score), (s_name, s_score, pcc) in zip(real_scores, synth_scores):
+#        assert r_name == s_name, "Names don't match (%s, %s)" % (r_name, s_name)
+#        result = map(lambda x: stats.entropy(x, r_score), s_score)
+#        score = np.mean(result)
+#        print("%s:\tpcc=%0.4f\tscore=%0.4f" % (r_name, pcc, score))
+#        final_results.append((r_name, pcc, score))
+    for s_name, s_score, pcc in synth_scores:
+        result = stats.entropy(s_score.mean(axis=0), real_score)
+        #score = np.mean(result)
+        score = np.exp(result)
+        print("%s:\tpcc=%0.4f\tscore=%0.4f" % (s_name, pcc, score))
+        final_results.append((s_name, pcc, score))
     names,xdata,ydata = zip(*final_results)
     fig, ax = plt.subplots()
     ax.scatter(xdata,ydata)

@@ -13,7 +13,6 @@ import matplotlib.pyplot as plt
 from utils.argutils import valid_path
 
 LOG_FILE = 'training_results.log'
-PLOT_FILE = 'training.png'
 
 
 def get_parser():
@@ -21,32 +20,33 @@ def get_parser():
         formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument('indir', type=valid_path,
         help="""Directory containing training log file""")
-    parser.add_argument('-s', '--save', action='store_true',
-        help="""Save plots""")
     parser.add_argument('--outdir', type=valid_path, default=None,
-        help="""Directory to save plots to (uses indir if None)""")
+        help="""Directory to save plots to""")
     return parser
 
 
 def main(args):
     logfn = os.path.join(args.indir, LOG_FILE)
     df = pd.read_json(logfn)
-    fig, axes = plt.subplots(3,1)
+    fig, (ax1, ax2, ax3) = plt.subplots(3,1)
     fig.suptitle('Training Results')
     # Plot accuracy
-    df.plot(x='epoch', y=['d_accuracy'], ax=axes[0], grid=True)
-    axes[0].set_xlabel('')
+    df.plot(x='epoch', y=['d_accuracy'], ax=ax1, grid=True)
+    ax1.set_xlabel('')
+    ax1.set_ylabel('accuracy')
     # Plot loss
-    df.plot(x='epoch', y=['d_loss', 'g_loss'], ax=axes[1], grid=True)
-    axes[1].set_xlabel('')
+    df.plot(x='epoch', y=['d_loss', 'g_loss'], ax=ax2, grid=True)
+    ax2.set_xlabel('')
+    ax2.set_ylabel('loss')
     # Plot loss variance
-    df.plot(x='epoch', y=['d_loss_var', 'g_loss_var'], ax=axes[2], grid=True)
+    df.plot(x='epoch', y=['d_loss_var', 'g_loss_var'], ax=ax3, grid=True)
+    ax3.set_ylabel('loss variance')
 
     # Save plot
-    if args.save:
-        if args.outdir: outdir = args.outdir
-        else: outdir = args.indir
-        fname = os.path.join(outdir, PLOT_FILE)
+    if args.outdir:
+        inpath = os.path.basename(os.path.abspath(args.indir))
+        fname = '.'.join((inpath, 'png'))
+        fname = os.path.join(args.outdir, fname)
         plt.savefig(fname)
 
     plt.show()

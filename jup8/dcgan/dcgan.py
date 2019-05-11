@@ -106,3 +106,12 @@ class DCGAN(GAN):
     def save_discriminator_weights(self, filename):
         """Save the built discriminator weights"""
         self.discriminator.save_weights(filename)
+
+
+if __name__ == '__main__':
+    import sys
+    from keras.utils import plot_model
+    outfile = sys.argv[1]
+    g = get_generator(100, 1)
+    g.summary()
+    plot_model(g, to_file=outfile, show_shapes=True)

@@ -53,8 +53,12 @@ def get_parser():
     parser.add_argument('--experiment-filter', type=str, default=None,
         dest='experiment_filter',
         help="""Experiment type to filter results on (e.g. 'samples100')""")
+    parser.add_argument('--exclude', type=str, default=None,
+        help="""Pattern in experiment name to exclude""")
     parser.add_argument('--debug', action='store_true',
         help="""Turn on debug messages""")
+    parser.add_argument('--palette', type=str, default='Set2',
+        help="""Seaborn color palette to apply""")
     return parser
 
 
@@ -79,14 +83,20 @@ def main(args):
         perf_results.extend([(t,pcc,name) for t,pcc in get_pcc(group)])
     df_perf_results = pd.DataFrame(perf_results, columns=['target', 'pcc', 'experiment'])
     if args.experiment_filter:
+        log.info("Using only experiments %s" % args.experiment_filter)
         mask = df_perf_results.experiment.apply(lambda x: x.startswith(args.experiment_filter))
+        df_perf_results = df_perf_results[mask]
+    if args.exclude:
+        log.info("Excluding %s" % args.exclude)
+        mask = df_perf_results.experiment.apply(lambda x: args.exclude not in x)
         df_perf_results = df_perf_results[mask]
     g = sns.catplot(x='pcc',
                     y='target',
                     hue='experiment',
                     jitter=False,
-                    palette='Set2',
+                    palette=args.palette,
                     data=df_perf_results)
+    plt.title('Performance Comparison')
     plt.show()
 
     return

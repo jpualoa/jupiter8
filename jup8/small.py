@@ -23,5 +23,9 @@ def get_model(input_shape=INPUT_SHAPE):
     return model
 
 if __name__ == '__main__':
+    import sys
     model = get_model()
     model.summary()
+    if sys.argv[1]:
+        from keras.utils import plot_model
+        plot_model(model, show_shapes=True, to_file=sys.argv[1])

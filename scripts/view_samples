@@ -9,6 +9,7 @@ from math import sqrt
 import pymongo
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
 
 # Local imports
 from utils.argutils import valid_path
@@ -16,7 +17,7 @@ from utils.argutils import valid_path
 DEFAULT_DATABASE = 'mstar2'
 TARGET_COLLECTION = 'targets'
 SYNTH_COLLECTION = 'synthetics'
-NUM_SAMPLES = 9
+NUM_SAMPLES = 4
 DEP_ANGLE_TEST = '15_DEG'
 DEP_ANGLE_TRAIN = '15_DEG'
 TARGETS = [
@@ -49,9 +50,6 @@ def get_parser():
     parser.add_argument('--show-training', action='store_true', dest='show_training',
         help="""If viewing real samples, show samples from the training set. 
             Otherwise show samples from the test set""")
-    #parser.add_argument('--num-samples', type=int, dest='num_samples',
-    #    default=DEFAULT_NUM_SAMPLES,
-    #    help="""number of samples to display per class""")
     parser.add_argument('--synths', action='store_true',
         help="""show synthesized samples""")
     parser.add_argument('--samples-trained-with', choices=[25, 50, 100, 101],
@@ -63,7 +61,11 @@ def get_parser():
 
 def load_targets(args):
     if args.synths:
-        query = {'num_samples_trained_with': args.samples_trained_with}
+        query = {'target_class': args.label}
+        if args.samples_trained_with == 101:
+            query['num_samples_trained_with'] = {'$gt': 100}
+        else:
+            query['num_samples_trained_with'] = args.samples_trained_with
         cursor = db[SYNTH_COLLECTION].find(query)
         df = pd.DataFrame(list(cursor))
     else:
@@ -84,23 +86,31 @@ def main(args):
 
     rows = int(sqrt(NUM_SAMPLES))
     cols = rows
-    fig, axes = plt.subplots(rows, cols)
+    #fig, axes = plt.subplots(rows, cols)
+    if args.synths: title = '%s Synthetic Samples' % args.label
+    else:
+        if args.show_training: title = '%s Training Samples' % args.label
+        else: title = '%s Test Samples' % args.label
+    fig = plt.figure(figsize=(rows,cols))
+    fig.suptitle(title)
+    gs = gridspec.GridSpec(rows, cols, wspace=0.025, hspace=0.025)
     idx = 0
     for i in xrange(rows):
         for j in xrange(cols):
             img = images[idx]
             fn = filenames[idx]
             idx +=1
-            ax = axes[i, j]
+            #ax = axes[i, j]
+            ax = plt.subplot(gs[i,j])
             ax.axis('off')
-            ax.set_title("%s" % os.path.basename(fn), fontsize=8)
             ax.imshow(img, cmap='gray')
+            #ax.xaxis.set_major_locator(NullLocator())
+            #ax.yaxis.set_major_locator(NullLocator())
+    if args.outdir:
+        fname = os.path.join(args.outdir, '%s.png' % title.replace(' ','_'))
+        plt.savefig(fname, dpi=200, bbox_inches='tight', pad=0)
+    
     plt.show()
-#    output_file = 'samples'
-#    if args.synths:
-#        output_file += '_synth'
-#    output_file += '.png'
-#    plt.savefig(os.path.join(args.outdir, output_file))
     return
 
 if __name__ == '__main__':
