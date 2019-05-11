@@ -1,0 +1,90 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import logging
+
+# External dependencies
+import pymongo
+import pandas as pd
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
+# Defaults/constants
+DATABASE = 'mstar2'
+COLLECTION = 'synthetics'
+TARGETS = [
+    "BTR_60",
+    "2S1",
+    "BRDM_2",
+    "D7",
+    "T62",
+    "ZIL131",
+    "ZSU_23_4",
+    "BMP2",
+    "BTR70",
+    "T72"
+]
+
+# Mongo client
+client = pymongo.MongoClient()
+db = client[DATABASE]
+
+# Shared logger
+log = logging.getLogger(__name__)
+
+def get_samples(klass):
+    #
+    # Get dataframe of synths for klass
+    #
+    query = {'target_class': klass}
+    cursor = db[COLLECTION].find(query)
+    df = pd.DataFrame(list(cursor))
+    if df.empty: raise RuntimeError('no results for %s' % klass)
+    #
+    # Pull sample for each 'num_samples_trained_with'
+    #
+    samples = []
+    grouped = df.groupby(['num_samples_trained_with'])
+    for num_trained, group in grouped:
+        log.debug('Pulling sample for num_samples_trained_with = %s' % num_trained)
+        s = group.sample()
+        samples.append((klass, num_trained, s.filename.item()))
+    return samples
+
+
+def main():
+    all_samples = []
+    for target in TARGETS:
+        all_samples.append(get_samples(target))
+
+    rows = len(TARGETS)
+    cols = 4
+    fig = plt.figure(figsize=(4, 16))
+
+    outer_grid = gridspec.GridSpec(rows, 1, wspace=0.0, hspace=0.4)
+
+    for i in range(rows):
+        inner_grid = gridspec.GridSpecFromSubplotSpec(1, cols,
+            subplot_spec=outer_grid[i], wspace=0.0, hspace=0.0)
+        samples = all_samples[i]
+        for j in range(cols):
+            target, num_trained, fn = samples[j]
+            ax = plt.subplot(inner_grid[j])
+            img = plt.imread(fn)
+            ax.imshow(img, cmap='gray')
+            ax.set_xlabel('%d' % num_trained, fontsize='small')
+            if j == 0: ax.set_ylabel('%s '%target.replace('_',''), fontsize='small')
+            ax.grid(False)
+            ax.set_xticks([])
+            ax.set_yticks([])
+    plt.show()
+    return
+
+
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.DEBUG)
+    main()
+    exit(0)
+
+        
+    

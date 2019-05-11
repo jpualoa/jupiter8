@@ -1,0 +1,48 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import glob
+
+# External dependencies
+import pandas as pd
+import pymongo
+
+# Constants/defaults
+DATABASE = 'mstar2'
+SYNTHS_COLLECTION = 'synthetics_v2'
+FILENAME_PATTERN = '*top25.txt'
+
+
+def main(indir):
+    pattern = os.path.join(indir, FILENAME_PATTERN)
+    top25_files = glob.glob(pattern)
+    top25 = []
+    for fn in top25_files:
+        with open(fn, 'r') as f:
+            samples = f.read().split(',')
+            top25.extend(samples)
+    #
+    # Setup MongoDB client
+    #
+    client = pymongo.MongoClient()
+    db = client[DATABASE]
+    synths = db[SYNTHS_COLLECTION]
+    #
+    # Update metadata
+    #
+    res = synths.update({'filename': {'$in': top25}}, # filter
+                        {'$set': {'tags': ['top25']}}, # update
+                        multi=True)
+    print(res)
+    return
+
+
+if __name__ == '__main__':
+    import sys
+    print("Using synths collection %s" % SYNTHS_COLLECTION)
+    response = raw_input("Enter 'c' to continue: ")
+    if response != 'c':
+        print("Quitting")
+        exit(0)
+    main(sys.argv[1])
+    exit(0)

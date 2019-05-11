@@ -1,0 +1,33 @@
+#!/usr/bin/env python
+# Standard imports
+import os
+import argparse
+
+# External dependencies
+import matplotlib.pyplot as plt
+import matplotlib.gridspec as gridspec
+
+def main(img1, img2, outfile):
+    img1 = plt.imread(os.path.expandvars(os.path.expanduser(img1)))
+    img2 = plt.imread(os.path.expandvars(os.path.expanduser(img2)))
+
+    fig, (ax1, ax2) = plt.subplots(1,2, gridspec_kw={'wspace':0.025})
+    #fig, (ax1, ax2) = plt.subplots(1,2)
+    # plot first image
+    ax1.imshow(img1)
+    ax1.axis('off')
+    # plot second image
+    ax2.imshow(img2)
+    ax2.axis('off')
+    # Save it
+    plt.savefig(outfile, dpi=800, bbox_inches='tight', pad=0)
+    plt.show()
+    return
+
+
+if __name__ == '__main__':
+    import sys
+    img1, img2, outfile = sys.argv[1:]
+    main(img1, img2, outfile)
+    exit(0)
+
